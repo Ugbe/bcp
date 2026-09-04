@@ -1,0 +1,30 @@
+# Versions verified working together on 2026-08-12 (Vast.ai PyTorch image, RTX 4090).
+# torch is preinstalled in /venv/main and deliberately NOT pinned here -- reinstalling
+# it risks breaking the CUDA build that matches the host driver.
+#
+# Deliberately absent: tevatron, vllm, deepspeed. The repo's pyproject.toml requires
+# them, but the hybrid searcher does not, and installing them downgrades torch.
+#
+# Also deliberately absent: flash-attn. The service asks for flash_attention_2 but
+# the searcher falls back to sdpa if it cannot import it, so this is a performance
+# dependency only. There is no universal wheel -- it must match torch, CUDA and
+# python exactly (the original box ran 2.8.3+cu130torch2.12-cp312) and pip would
+# otherwise start a ~1 hour source build. setup.sh makes a best-effort attempt at
+# a matching prebuilt wheel and continues without it.
+
+faiss-cpu==1.15.0          # CPU keeps ~1.6 GB of index off the GPU, leaving room for the 8B encoder
+pyserini==2.3.0            # BM25 over Lucene; needs JDK 21 on PATH
+transformers==5.15.0
+peft==0.20.0               # merges the LoRA adapters into their base models
+accelerate==1.14.0
+datasets==5.0.1
+huggingface-hub==1.18.0
+fastapi==0.141.1
+uvicorn==0.52.1
+python-dotenv==1.2.2
+numpy==2.4.6
+
+# Only needed to run notebooks/test_retrieval.ipynb
+requests
+nbclient
+ipykernel

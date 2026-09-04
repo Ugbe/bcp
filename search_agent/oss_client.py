@@ -10,6 +10,7 @@ from datetime import datetime
 from pathlib import Path
 
 import openai
+from dotenv import load_dotenv
 from prompts import format_query
 from rich import print as rprint
 from tqdm import tqdm
@@ -17,6 +18,8 @@ from transformers import AutoTokenizer
 
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 from utils import extract_retrieved_docids_from_result
+
+load_dotenv(os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env"))
 
 from searcher.searchers import SearcherType
 
@@ -461,6 +464,11 @@ def main():
     parser.add_argument(
         "--model-url", default="http://localhost:8000/v1", help="Model URL"
     )
+    parser.add_argument(
+        "--model-api-key",
+        default=os.environ.get("MODEL_API_KEY", "EMPTY"),
+        help="API key for the model endpoint (default: $MODEL_API_KEY or 'EMPTY')",
+    )
 
     # Searcher selection and shared tool options --------------------------
     parser.add_argument(
@@ -507,7 +515,7 @@ def main():
 
     client = openai.OpenAI(
         base_url=args.model_url,
-        api_key="EMPTY",
+        api_key=args.model_api_key,
     )
 
     searcher = searcher_class(args)

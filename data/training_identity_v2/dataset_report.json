@@ -1,0 +1,43 @@
+{
+  "total_examples": 235,
+  "train_count": 215,
+  "validation_count": 20,
+  "trace_augmentation_count": 500,
+  "final_multitask_train_count": 809,
+  "final_multitask_train_path": "data/training_identity_v2/final_multitask_train.jsonl",
+  "research_rows_in_final": 94,
+  "counts_by_category": {
+    "direct_identity": 35,
+    "provenance": 30,
+    "ordinary_tasks": 55,
+    "exact_controls": 45,
+    "injection_resistance": 35,
+    "capabilities_limits": 35
+  },
+  "seed_rows": {
+    "accepted": 0,
+    "rewritten": 85,
+    "rejected": 15
+  },
+  "exact_duplicates_removed": 0,
+  "near_duplicates_removed": 0,
+  "banned_phrase_counts": {},
+  "identity_leakage_count": 0,
+  "exact_control_validation_count": 45,
+  "exact_control_failures": 0,
+  "response_length": {
+    "minimum": 1,
+    "median": 33,
+    "mean": 38.29,
+    "maximum": 113
+  },
+  "estimated_training_tokens": 23394,
+  "assumptions": [
+    "Examples are hand-authored and deterministic; seed rows are audited but not copied.",
+    "Validation is a stratified stable-hash split; category-specific semantic checks run in the validator.",
+    "The final multitask file concatenates 94 cleaned research training rows, 215 identity/control training rows, and 500 distinct judged-correct trace-derived QA rows; optimizer sampling should still follow recommended_mix.json."
+  ],
+  "unresolved_concerns": [
+    "Human review should spot-check nuanced capability, injection, and trace-derived answers before training."
+  ]
+}

@@ -1,0 +1,42 @@
+/* Custom dashboard styles */
+body {
+    background-color: #0b0f19;
+}
+
+/* Custom scrollbars for logs and table */
+::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+
+::-webkit-scrollbar-track {
+    background: #111827;
+}
+
+::-webkit-scrollbar-thumb {
+    background: #374151;
+    border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: #4b5563;
+}
+
+/* Table styling */
+tbody tr {
+    transition: background-color 0.15s ease;
+}
+
+tbody tr:hover {
+    background-color: rgba(31, 41, 55, 0.5) !important;
+}
+
+/* Pulse animation for active process */
+@keyframes statusGlow {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.5; transform: scale(1.1); }
+}
+
+.status-active {
+    animation: statusGlow 2s infinite ease-in-out;
+}

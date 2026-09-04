@@ -1,0 +1,32 @@
+{
+  "input": "C:\\Users\\Dell\\Downloads\\electron-id\\identity-training-v1\\train.jsonl",
+  "ground_truth": "data\\browsecomp_plus_decrypted.jsonl",
+  "thresholds": {
+    "min_confidence": 70.0,
+    "max_tool_calls": 24,
+    "tool_output_chars": 5000,
+    "max_estimated_tokens": 30000,
+    "reasoning_chars_per_turn": 1200,
+    "validation_percent": 10
+  },
+  "research_input": 307,
+  "research_accepted": 106,
+  "research_train": 94,
+  "research_validation": 12,
+  "research_rejected": 201,
+  "rejection_reasons": {
+    "answer_not_strictly_equal_to_ground_truth": 145,
+    "gold_answer_not_literal_in_retained_tool_evidence": 133,
+    "low_or_missing_confidence": 70,
+    "too_many_tool_calls": 53,
+    "uncertain_or_failed_research_language": 40,
+    "missing_document_citation": 38,
+    "missing_parseable_explanation": 34,
+    "estimated_context_too_long": 33,
+    "empty_tool_output": 2
+  },
+  "identity_input_manual_only": 100,
+  "identity_accepted": 100,
+  "identity_duplicates_dropped": 0,
+  "excluded_crowther_persona_rows": 1500
+}

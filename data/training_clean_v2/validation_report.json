@@ -1,0 +1,36 @@
+{
+  "research": {
+    "path": "data\\training_clean_v2\\research_train.jsonl",
+    "records": 94,
+    "tool_calls": {
+      "search": 904,
+      "get_document": 166
+    },
+    "estimated_tokens_min": 3809,
+    "estimated_tokens_max": 25339,
+    "assistant_turns": 1164,
+    "reasoning_turns": 1090,
+    "reasoning_turn_percent": 93.64,
+    "errors": []
+  },
+  "identity": {
+    "path": "data\\training_clean_v2\\identity_train.jsonl",
+    "records": 100,
+    "errors": []
+  },
+  "research_validation": {
+    "path": "data\\training_clean_v2\\research_validation.jsonl",
+    "records": 12,
+    "tool_calls": {
+      "search": 130,
+      "get_document": 25
+    },
+    "estimated_tokens_min": 4386,
+    "estimated_tokens_max": 20282,
+    "assistant_turns": 167,
+    "reasoning_turns": 165,
+    "reasoning_turn_percent": 98.8,
+    "errors": []
+  },
+  "train_validation_overlap": []
+}

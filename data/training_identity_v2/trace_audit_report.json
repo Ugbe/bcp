@@ -1,0 +1,14 @@
+{
+  "files_scanned": 7910,
+  "completed_and_judged_correct": 7080,
+  "selected": 500,
+  "selection_criteria": [
+    "Status=completed",
+    "Judge verdict=correct",
+    "usable Query and Correct answer fields",
+    "unique normalized prompt",
+    "no near-duplicate prompt at similarity threshold 0.88",
+    "answer length <=400 characters"
+  ],
+  "treatment": "Distilled QA only; original cleaned research trajectories remain the tool-grounded training source."
+}

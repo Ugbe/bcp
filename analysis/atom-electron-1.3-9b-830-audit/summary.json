@@ -1,0 +1,328 @@
+{
+  "source": {
+    "query_rows": 830,
+    "query_id_min": 1,
+    "query_id_max": 1266,
+    "unique_query_ids": 830,
+    "active_run_records": 830,
+    "active_eval_records": 830,
+    "eval_json_files_including_summary": 831,
+    "recursive_run_record_files_all_runs_and_quarantines": 1422
+  },
+  "outcomes": {
+    "status_counts": {
+      "completed": 805,
+      "incomplete_no_final_answer": 20,
+      "incomplete_request_error": 1,
+      "incomplete_length": 4
+    },
+    "correct": 438,
+    "completed_wrong_including_no_judge_parse_errors": 367,
+    "not_correct_including_incomplete": 392,
+    "accuracy_all_830_percent": 52.7711,
+    "accuracy_completed_only_percent": 54.4099,
+    "judge_parse_error_flag_count": 25,
+    "judge_parse_errors_on_completed_runs": 0
+  },
+  "tool_budget": {
+    "runs_at_24_calls": 128,
+    "correct_at_24": 18,
+    "not_correct_at_24": 110,
+    "incomplete_at_24": 21,
+    "explicit_cannot_determine_at_24": 31,
+    "blocked_duplicate_search_calls_at_24": 982
+  },
+  "early_stopping": {
+    "completed_before_24_calls": 698,
+    "correct_before_24_calls": 420,
+    "explicit_no_answer_before_24_calls": 73,
+    "caveated_candidate_before_24_calls": 176,
+    "caveated_candidate_correct": 106,
+    "caveated_candidate_wrong": 70,
+    "avg_calls_explicit_no_answer": 16.493150684931507,
+    "avg_calls_caveated_candidate": 14.596590909090908,
+    "remaining_budget_explicit_no_answer": 548,
+    "remaining_budget_caveated_candidate": 1655
+  },
+  "retrieval_overlap": {
+    "actual_search_result_calls": 10169,
+    "total_result_slots": 101690,
+    "repeated_result_slots": 58764,
+    "repeated_result_slot_percent": 57.7874,
+    "blocked_exact_duplicate_query_calls": 1023,
+    "calls_with_zero_new_docs": 1302,
+    "calls_with_at_most_3_new_docs": 5070,
+    "calls_with_at_least_7_repeated_docs": 5070,
+    "runs_with_any_repeated_result": 818,
+    "runs_with_high_overlap_call": 760
+  },
+  "model_loops": {
+    "runs_with_blocked_exact_duplicate_search": 133,
+    "runs_with_exact_repeated_reasoning": 145,
+    "total_blocked_exact_duplicate_search_calls": 1023,
+    "total_repeated_reasoning_events": 1037
+  },
+  "controller_diagnostics": {
+    "runs_with_early_final_guard_trigger": 0,
+    "total_early_final_recoveries": 0,
+    "emergency_finalizer_attempts": 0,
+    "emergency_finalizer_successes": 0,
+    "runs_with_server_exclusions": 0,
+    "runs_with_retrieval_fallback": 0,
+    "total_stagnation_guidance_events": 0
+  },
+  "judge_equivalence_candidate_count": 42,
+  "manual_judge_review": {
+    "high_confidence_judge_errors": 21,
+    "probable_or_policy_dependent": 12,
+    "judge_rejection_justified": 9,
+    "accuracy_if_high_confidence_errors_corrected_percent": 55.3012,
+    "accuracy_if_all_probable_cases_also_accepted_percent": 56.747
+  },
+  "evidence_and_confidence": {
+    "completed_wrong_with_recall_at_least_50_percent": 189,
+    "completed_wrong_with_100_percent_recall": 46,
+    "completed_wrong_with_gold_literal_in_tool_output": 130,
+    "completed_wrong_at_confidence_ge_80": 179,
+    "completed_wrong_at_confidence_ge_90": 96,
+    "completed_wrong_at_confidence_100": 16,
+    "explicit_cannot_determine_all_runs": 104
+  },
+  "cohorts": [
+    {
+      "label": "all",
+      "count": 830,
+      "accuracy_percent": 52.7711,
+      "avg_total_tool_calls": 14.553012048192771,
+      "avg_search_calls": 13.48433734939759,
+      "avg_get_document_calls": 1.0686746987951807,
+      "avg_unique_docids_seen": 51.71807228915662,
+      "avg_repeated_result_slot_percent": 53.58468721351025,
+      "avg_retrieval_recall_percent": 58.274013804134285
+    },
+    {
+      "label": "completed",
+      "count": 805,
+      "accuracy_percent": 54.4099,
+      "avg_total_tool_calls": 14.35776397515528,
+      "avg_search_calls": 13.26832298136646,
+      "avg_get_document_calls": 1.0894409937888199,
+      "avg_unique_docids_seen": 51.65714285714286,
+      "avg_repeated_result_slot_percent": 53.76739975124378,
+      "avg_retrieval_recall_percent": 59.115363932134116
+    },
+    {
+      "label": "correct",
+      "count": 438,
+      "accuracy_percent": 100.0,
+      "avg_total_tool_calls": 12.118721461187215,
+      "avg_search_calls": 10.819634703196346,
+      "avg_get_document_calls": 1.2990867579908676,
+      "avg_unique_docids_seen": 47.5958904109589,
+      "avg_repeated_result_slot_percent": 49.79102374429224,
+      "avg_retrieval_recall_percent": 68.10592882510691
+    },
+    {
+      "label": "completed_wrong",
+      "count": 367,
+      "accuracy_percent": 0.0,
+      "avg_total_tool_calls": 17.029972752043598,
+      "avg_search_calls": 16.190735694822887,
+      "avg_get_document_calls": 0.8392370572207084,
+      "avg_unique_docids_seen": 56.50408719346049,
+      "avg_repeated_result_slot_percent": 58.526013661202185,
+      "avg_retrieval_recall_percent": 48.385479945425445
+    },
+    {
+      "label": "not_correct_including_incomplete",
+      "count": 392,
+      "accuracy_percent": 0.0,
+      "avg_total_tool_calls": 17.272959183673468,
+      "avg_search_calls": 16.461734693877553,
+      "avg_get_document_calls": 0.8112244897959183,
+      "avg_unique_docids_seen": 56.32397959183673,
+      "avg_repeated_result_slot_percent": 57.83436649616368,
+      "avg_retrieval_recall_percent": 47.28835365314957
+    },
+    {
+      "label": "used_get_document",
+      "count": 626,
+      "accuracy_percent": 62.4601,
+      "avg_total_tool_calls": 13.504792332268371,
+      "avg_search_calls": 12.087859424920127,
+      "avg_get_document_calls": 1.4169329073482428,
+      "avg_unique_docids_seen": 50.23162939297124,
+      "avg_repeated_result_slot_percent": 52.69027012779553,
+      "avg_retrieval_recall_percent": 62.976340308608684
+    },
+    {
+      "label": "never_used_get_document",
+      "count": 204,
+      "accuracy_percent": 23.0392,
+      "avg_total_tool_calls": 17.769607843137255,
+      "avg_search_calls": 17.769607843137255,
+      "avg_get_document_calls": 0.0,
+      "avg_unique_docids_seen": 56.279411764705884,
+      "avg_repeated_result_slot_percent": 56.342840394088675,
+      "avg_retrieval_recall_percent": 43.844325609031486
+    },
+    {
+      "label": "budget_24",
+      "count": 128,
+      "accuracy_percent": 14.0625,
+      "avg_total_tool_calls": 24.0,
+      "avg_search_calls": 23.5078125,
+      "avg_get_document_calls": 0.4921875,
+      "avg_unique_docids_seen": 60.3984375,
+      "avg_repeated_result_slot_percent": 60.198140625,
+      "avg_retrieval_recall_percent": 44.67011070526695
+    },
+    {
+      "label": "not_budget_24",
+      "count": 702,
+      "accuracy_percent": 59.8291,
+      "avg_total_tool_calls": 12.83048433048433,
+      "avg_search_calls": 11.656695156695157,
+      "avg_get_document_calls": 1.1737891737891737,
+      "avg_unique_docids_seen": 50.135327635327634,
+      "avg_repeated_result_slot_percent": 52.377095149786015,
+      "avg_retrieval_recall_percent": 60.754497560053125
+    },
+    {
+      "label": "has_retrieval_overlap",
+      "count": 818,
+      "accuracy_percent": 52.5672,
+      "avg_total_tool_calls": 14.7359413202934,
+      "avg_search_calls": 13.665036674816626,
+      "avg_get_document_calls": 1.0709046454767726,
+      "avg_unique_docids_seen": 52.30562347188264,
+      "avg_repeated_result_slot_percent": 54.305263691931536,
+      "avg_retrieval_recall_percent": 58.204548100636124
+    },
+    {
+      "label": "no_retrieval_overlap",
+      "count": 12,
+      "accuracy_percent": 66.6667,
+      "avg_total_tool_calls": 2.0833333333333335,
+      "avg_search_calls": 1.1666666666666667,
+      "avg_get_document_calls": 0.9166666666666666,
+      "avg_unique_docids_seen": 11.666666666666666,
+      "avg_repeated_result_slot_percent": 0.0,
+      "avg_retrieval_recall_percent": 63.00925925925925
+    }
+  ],
+  "recall_buckets": [
+    {
+      "label": "0%",
+      "count": 50,
+      "accuracy_percent": 0.0,
+      "avg_total_tool_calls": 17.34,
+      "avg_search_calls": 16.74,
+      "avg_get_document_calls": 0.6,
+      "avg_unique_docids_seen": 52.54,
+      "avg_repeated_result_slot_percent": 58.98186530612245,
+      "avg_retrieval_recall_percent": 0.0
+    },
+    {
+      "label": ">0-<50%",
+      "count": 232,
+      "accuracy_percent": 37.5,
+      "avg_total_tool_calls": 16.323275862068964,
+      "avg_search_calls": 15.482758620689655,
+      "avg_get_document_calls": 0.8405172413793104,
+      "avg_unique_docids_seen": 52.827586206896555,
+      "avg_repeated_result_slot_percent": 57.92492068965517,
+      "avg_retrieval_recall_percent": 29.15719696969697
+    },
+    {
+      "label": "50-<100%",
+      "count": 404,
+      "accuracy_percent": 62.8713,
+      "avg_total_tool_calls": 13.863861386138614,
+      "avg_search_calls": 12.688118811881187,
+      "avg_get_document_calls": 1.1757425742574257,
+      "avg_unique_docids_seen": 52.25,
+      "avg_repeated_result_slot_percent": 52.08177574257426,
+      "avg_retrieval_recall_percent": 67.33406376351921
+    },
+    {
+      "label": "100%",
+      "count": 144,
+      "accuracy_percent": 67.3611,
+      "avg_total_tool_calls": 12.666666666666666,
+      "avg_search_calls": 11.368055555555555,
+      "avg_get_document_calls": 1.2986111111111112,
+      "avg_unique_docids_seen": 48.15277777777778,
+      "avg_repeated_result_slot_percent": 48.97205069444445,
+      "avg_retrieval_recall_percent": 100.0
+    }
+  ],
+  "tool_call_buckets": [
+    {
+      "label": "0-4",
+      "count": 40,
+      "accuracy_percent": 75.0,
+      "avg_total_tool_calls": 3.125,
+      "avg_search_calls": 2.225,
+      "avg_get_document_calls": 0.9,
+      "avg_unique_docids_seen": 18.5,
+      "avg_repeated_result_slot_percent": 13.098289743589744,
+      "avg_retrieval_recall_percent": 67.26984126984127
+    },
+    {
+      "label": "5-9",
+      "count": 134,
+      "accuracy_percent": 82.0896,
+      "avg_total_tool_calls": 7.485074626865671,
+      "avg_search_calls": 6.231343283582089,
+      "avg_get_document_calls": 1.2537313432835822,
+      "avg_unique_docids_seen": 36.14179104477612,
+      "avg_repeated_result_slot_percent": 40.315771641791045,
+      "avg_retrieval_recall_percent": 69.41838426913054
+    },
+    {
+      "label": "10-14",
+      "count": 257,
+      "accuracy_percent": 64.9805,
+      "avg_total_tool_calls": 12.140077821011673,
+      "avg_search_calls": 10.96887159533074,
+      "avg_get_document_calls": 1.171206225680934,
+      "avg_unique_docids_seen": 48.007782101167315,
+      "avg_repeated_result_slot_percent": 55.70329766536965,
+      "avg_retrieval_recall_percent": 61.77084912493472
+    },
+    {
+      "label": "15-19",
+      "count": 220,
+      "accuracy_percent": 45.0,
+      "avg_total_tool_calls": 16.76818181818182,
+      "avg_search_calls": 15.604545454545455,
+      "avg_get_document_calls": 1.1636363636363636,
+      "avg_unique_docids_seen": 60.68636363636364,
+      "avg_repeated_result_slot_percent": 60.89140454545455,
+      "avg_retrieval_recall_percent": 55.63037845992391
+    },
+    {
+      "label": "20-23",
+      "count": 51,
+      "accuracy_percent": 27.451,
+      "avg_total_tool_calls": 20.980392156862745,
+      "avg_search_calls": 19.745098039215687,
+      "avg_get_document_calls": 1.2352941176470589,
+      "avg_unique_docids_seen": 76.92156862745098,
+      "avg_repeated_result_slot_percent": 60.614519607843135,
+      "avg_retrieval_recall_percent": 49.86291486291486
+    },
+    {
+      "label": "24",
+      "count": 128,
+      "accuracy_percent": 14.0625,
+      "avg_total_tool_calls": 24.0,
+      "avg_search_calls": 23.5078125,
+      "avg_get_document_calls": 0.4921875,
+      "avg_unique_docids_seen": 60.3984375,
+      "avg_repeated_result_slot_percent": 60.198140625,
+      "avg_retrieval_recall_percent": 44.67011070526695
+    }
+  ]
+}

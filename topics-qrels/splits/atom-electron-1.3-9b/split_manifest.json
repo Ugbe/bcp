@@ -1,0 +1,26 @@
+{
+  "source_queries": "topics-qrels\\queries.tsv",
+  "source_train": "data\\training_multitask_v3\\final_multitask_train.jsonl",
+  "source_validation": "data\\training_multitask_v3\\final_multitask_validation.jsonl",
+  "benchmark_questions": 830,
+  "training_parent_questions_excluded": 114,
+  "validation_parent_questions_excluded": 12,
+  "strict_clean_questions": 704,
+  "reserved_holdout_769_797_questions": 23,
+  "train_validation_parent_overlap": 0,
+  "splits": {
+    "queries_strict_clean.tsv": {
+      "rows": 704,
+      "sha256": "4f3177d1b5f41c776337b4f5513195cbf8a718782b1d72fb154d76bb7e28db3c"
+    },
+    "queries_reserved_holdout_769_797.tsv": {
+      "rows": 23,
+      "sha256": "520849326a38f04cabcfce0de488a796441d43359853cbb7ea7aa4169bee8539"
+    },
+    "queries_preflight_one.tsv": {
+      "rows": 1,
+      "sha256": "a4298ad82b15bb457aed9d9fc994f0cca43b6b5d550c0756fee1f006a12c730d"
+    }
+  },
+  "policy": "Strict-clean excludes every BrowseComp parent present in either the final training or validation JSONL. The reserved holdout is the subset of strict-clean query IDs numerically between 769 and 797 inclusive."
+}

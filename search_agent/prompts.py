@@ -31,6 +31,34 @@ Exact Answer: {{your succinct, final answer}}
 Confidence: {{your confidence score between 0% and 100% for your answer}}
 """.strip()
 
+QUERY_TEMPLATE_RESEARCH_LEDGER = """
+You are a deep research agent. You need to answer the given question by interacting with a search engine, using the search and get_document tools provided. Please perform reasoning and use the tools step by step, in an interleaved manner. You may use the search and get_document tools multiple times.
+
+Treat the tool-call allowance as a ceiling, not a target. Internally maintain a compact research ledger: the leading candidate; identity-critical constraints verified with supporting docids; contradictions; identity-critical constraints still unverified; and the next query most likely to distinguish plausible candidates. An identity-critical constraint is one that could change which entity is the answer or is directly requested by the question. Peripheral corroboration need not be exhaustively verified.
+
+Do not finalize merely because a plausible name appears. Finalize when the candidate is uniquely supported and no unresolved identity-critical constraint can plausibly change the answer. If such a constraint remains and productive calls are available, make a targeted discriminating search. Prefer get_document when a truncated or ambiguous snippet is decisive. If repeated searches yield little new evidence, compare candidates and change strategy instead of repeating a broad query. If no discriminating action remains, return the best-supported candidate rather than refusing. Do not expose the internal ledger in the final response.
+
+Question: {Question}
+
+Your response should be in the following format:
+Explanation: {{your explanation for your final answer. For this explanation section only, you should cite your evidence documents inline by enclosing their docids in square brackets [] at the end of sentences. For example, [20].}}
+Exact Answer: {{your succinct, final answer}}
+Confidence: {{your confidence score between 0% and 100% for your answer}}
+""".strip()
+
+QUERY_TEMPLATE_RESEARCH_LEDGER_NO_GET_DOCUMENT = """
+You are a deep research agent. You need to answer the given question by interacting with a search engine, using the search tool provided. Please perform reasoning and use the tool step by step, in an interleaved manner. You may use the search tool multiple times.
+
+Treat the tool-call allowance as a ceiling, not a target. Internally maintain a compact research ledger: the leading candidate; identity-critical constraints verified with supporting docids; contradictions; identity-critical constraints still unverified; and the next query most likely to distinguish plausible candidates. Do not finalize merely because a plausible name appears. If an unresolved identity-critical constraint could change the answer, make a targeted discriminating search. If searches stagnate, compare candidates and change strategy rather than repeating a broad query. If no discriminating action remains, return the best-supported candidate rather than refusing. Do not expose the ledger in the final response.
+
+Question: {Question}
+
+Your response should be in the following format:
+Explanation: {{your explanation for your final answer. For this explanation section only, you should cite your evidence documents inline by enclosing their docids in square brackets [] at the end of sentences. For example, [20].}}
+Exact Answer: {{your succinct, final answer}}
+Confidence: {{your confidence score between 0% and 100% for your answer}}
+""".strip()
+
 QUERY_TEMPLATE_ORACLE = """
 I will give you a question and a set of evidence documents, which contains all the necessary information to answer the question. You need to reason and answer the question based on these evidence documents, step by step.
 
@@ -128,5 +156,9 @@ def format_query(query: str, query_template: str | None = None) -> str:
         return QUERY_TEMPLATE_NO_GET_DOCUMENT.format(Question=query)
     elif query_template == "QUERY_TEMPLATE_NO_GET_DOCUMENT_NO_CITATION":
         return QUERY_TEMPLATE_NO_GET_DOCUMENT_NO_CITATION.format(Question=query)
+    elif query_template == "QUERY_TEMPLATE_RESEARCH_LEDGER":
+        return QUERY_TEMPLATE_RESEARCH_LEDGER.format(Question=query)
+    elif query_template == "QUERY_TEMPLATE_RESEARCH_LEDGER_NO_GET_DOCUMENT":
+        return QUERY_TEMPLATE_RESEARCH_LEDGER_NO_GET_DOCUMENT.format(Question=query)
     else:
         raise ValueError(f"Unknown query template: {query_template}")

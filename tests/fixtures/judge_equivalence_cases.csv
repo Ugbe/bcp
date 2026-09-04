@@ -1,0 +1,43 @@
+query_id,correct_answer,model_answer,expected_decision
+192,Dr. Kang Se Hoon,Kang Se-hoon,true
+216,Manly Hall,Manly P. Hall,true
+219,Fall of the Queen Bean,Fall for the Queen Bean,false
+275,Union Carbide and Carbon Corporation.,Union Carbide Corporation,unresolved
+278,MediaLab Group,Medialab,unresolved
+283,Zimri Elder,Zimri Eder,unresolved
+394,wing three-quarter,Wing,true
+406,Masata Kato,Masato Kato,unresolved
+422,Nicotiana tabacum variety Wisconsin 38,Wisconsin 38,unresolved
+425,Graham Cracker Crumble,Graham,false
+443,Ivapur Hidra,Ivatherm Ivapur Hidra Hydrating Cream,true
+445,"multiple-membership, multiple-classification",multiple-membership multiple-classification model,true
+509,Sacrofanite,Sacrofanoite,false
+514,Maximilian Josef Sommer,Josef Sommer,false
+516,Sacred Heart High School,Sacred Heart High School Hammersmith,true
+519,Glafkos Clerides: The Path of a Country,Glafcos Clerides: The Path of a Country,unresolved
+532,Hartlepool United,Hartlepools United,unresolved
+542,Brian Gilbert,Brian David Gilbert,true
+577,DN AGRAR Group,DN AGRAR,unresolved
+579,"March 5, 2021","March 9, 2021",false
+593,"February 9, 2021",February 2021,false
+607,1lb 6oz,1lbs 6oz,true
+625,6; Lynn Okamoto,7; Lynn Okamoto,false
+639,John Daniel delos Santos,John Daniel Delos Santos,true
+651,FormFactor,"FormFactor, Inc.",true
+652,Auxly,Auxly Cannabis Group Inc.,true
+709,Lewis Dunk,Dunk,unresolved
+716,Libanius: A Critical Introduction,Libanius: a critical introduction,true
+749,Joseph Anokye,Joe Anokye,unresolved
+791,Jadal,JadaL,true
+820,Genetics Nepal Pvt. Ltd,Genetics Nepal,true
+826,Sunset at Biafra,Sunset in Biafra,false
+941,Mosquito,mosquitoes,true
+952,John Talabot session,Some John Talabot session,unresolved
+991,Tóke Makinwa,Toke Makinwa,true
+1005,Folke Karl Skoog,Folke K. Skoog,true
+1061,I Survived I Kissed Dating Goodbye,I Kissed Dating Goodbye,false
+1079,Uche Jombo Rodriguez,Uche Jombo,unresolved
+1138,2B Intelligent Soft,2B Intelligent Soft S.A.,true
+1150,"Trudy Bronner, Mathematics","Trudy Bronner, Math",true
+1155,Giusewa,Giusewa Pueblo,true
+1211,20 tantos,20tantos,true

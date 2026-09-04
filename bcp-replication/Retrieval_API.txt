@@ -1,0 +1,164 @@
+# BrowseComp Retrieval — external access
+
+Hybrid BM25 + dense retrieval over the BrowseComp-Plus corpus (100,195 docs), fused
+with RRF and reranked by a Qwen3 cross-encoder. Returns top-10.
+
+Reranking runs as a two-stage cascade: all ~200 fused candidates are scored cheaply
+at 512 tokens, then the top 20 are rescored at the full 8192 tokens. Everything that
+reaches the returned top-10 is still judged at full length.
+
+## Connect from outside (current values)
+
+These are the live values for **this** instance, verified reachable on 2026-08-24.
+Copy-paste ready — no container access needed:
+
+```bash
+export BCP_RETRIEVAL_URL="http://75.91.40.84:59109"
+export BCP_TOKEN="43d6b29a8932de3591013dfc67a15cc49569defd18959841390af10785b69b73"
+
+curl -s -X POST "$BCP_RETRIEVAL_URL/search" \
+  -H "Authorization: Bearer $BCP_TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"query":"who won the nobel prize in physics"}'
+```
+
+| | value |
+|---|---|
+| base URL | `http://75.91.40.84:59109` |
+| scheme | **http**, not https (`ENABLE_HTTPS` is unset on this box) |
+| public IP | `75.91.40.84` |
+| host port | `59109` (the portal label is `10100`; the host port is *not* that number) |
+| internal port | `17070` (container-local only) |
+| token | `43d6b29a8932de3591013dfc67a15cc49569defd18959841390af10785b69b73` |
+| SSH | `ssh -p 59336 root@75.91.40.84` |
+
+**These values do not survive a rebuild.** The IP, the host port, and the token are
+all reissued when the instance is recycled or destroyed. Re-derive them on the box:
+
+```bash
+echo "http://$PUBLIC_IPADDR:$VAST_TCP_PORT_10100"   # base URL
+echo "$OPEN_BUTTON_TOKEN"                            # token
+echo "$VAST_TCP_PORT_22"                             # SSH port
+```
+
+## Auth
+
+Every external request needs the instance token. Without it Caddy returns `401`
+before the request ever reaches the service. All four of these work — verified:
+
+```bash
+-H "Authorization: Bearer $BCP_TOKEN"                        # preferred
+"$BCP_RETRIEVAL_URL/docs?token=$BCP_TOKEN"                   # query param
+-u "vastai:$BCP_TOKEN"                                       # basic auth, user is literally "vastai"
+-H "Cookie: ${VAST_CONTAINERLABEL}_auth_token=$BCP_TOKEN"    # cookie
+```
+
+The token is `$OPEN_BUTTON_TOKEN` from inside the container. **`$WEB_PASSWORD` is a
+different value on this instance and is rejected with `401`** — use
+`$OPEN_BUTTON_TOKEN` only.
+
+Interactive docs: `$BCP_RETRIEVAL_URL/docs` (open it in a browser with
+`?token=...` appended, since a browser cannot set the bearer header).
+
+## `POST /search`
+
+```bash
+curl -s -X POST "$BCP_RETRIEVAL_URL/search" \
+  -H "Authorization: Bearer $BCP_TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"query":"who won the nobel prize in physics"}'
+```
+
+```json
+[{"docid": "29969", "score": 1.0, "snippet": "---\ntitle: ...\n---\n..."}]
+```
+
+10 results, descending score. Snippets are capped at 512 tokens.
+
+## `POST /retrieve`
+
+Same request and ranking, Search-R1 response shape — title split out, no score:
+
+```json
+{"result": [{"document": {"title": "...", "text": "..."}, "docid": "64251"}]}
+```
+
+## `GET /get_document`
+
+Full untruncated text by docid. No GPU work, responds in milliseconds; `404` if unknown.
+
+```bash
+curl -s -H "Authorization: Bearer $BCP_TOKEN" "$BCP_RETRIEVAL_URL/get_document?docid=75737"
+```
+
+```json
+{"docid": "75737", "text": "---\ntitle: List of Nobel laureates in Physics ...\n---\n..."}
+```
+
+## Python
+
+```python
+import os, requests
+
+BASE = os.environ["BCP_RETRIEVAL_URL"]   # http://75.91.40.84:59109
+S = requests.Session()
+S.headers["Authorization"] = f"Bearer {os.environ['BCP_TOKEN']}"
+
+hits = S.post(f"{BASE}/search", json={"query": "..."}, timeout=60).json()
+full = S.get(f"{BASE}/get_document", params={"docid": hits[0]["docid"]}).json()["text"]
+```
+
+## Performance
+
+Measured on the original serving box (1x RTX 4090, flash-attn + rerank token cache
+live), `scripts_evaluation/bench_concurrency.py` — re-run it after a rebuild rather
+than assuming these carry over:
+
+| concurrent callers | per-caller latency | throughput |
+|--------------------|--------------------|------------|
+| 1                  | **4.5 s**          | 0.22 q/s   |
+| 3                  | 4.4 / 8.3 / **12.6 s** | 0.24 q/s |
+
+A single search spends ~90% of its time in the cross-encoder (stage 1 ~1.5 s over
+~200 candidates, stage 2 ~2.5 s over the surviving 20). The rest is the dense scan
+(~150 ms), the 8B query encoder (~60 ms), and BM25 (~200 ms).
+
+## Operational notes
+
+- **Client timeout: 60 s.** Typical responses are 4-5 s alone and up to ~13 s with
+  three callers in flight. 60 s leaves room for a cold first request without hanging
+  a caller for minutes if something is wrong.
+- **GPU work is still serialized.** One lock covers the query encoder and the
+  reranker, so concurrent searches queue for the GPU: with N callers the last one
+  waits roughly N x the solo latency. BM25 and the dense scan now run outside that
+  lock and overlap across requests.
+- **Modest parallelism is fine, and helps throughput** — 3 concurrent callers finish
+  in 12.6 s wall versus 13.5 s issued serially. Beyond ~3 concurrent the queue grows
+  faster than it drains; batch your own work rather than fanning out widely.
+- **`/get_document` no longer queues behind searches** in the same way — it touches
+  no GPU — but it still shares the HTTP worker pool.
+- **`k` is fixed at 10** server-side — not a request parameter.
+- Only `query` is accepted in the body; extra fields are ignored.
+- After a restart the service needs **3-4 minutes** to load the corpus, indexes,
+  models, and the rerank token cache before it binds the port.
+  `supervisorctl status bcp-retrieval` reporting `RUNNING` does not mean it is
+  accepting connections — poll `/docs` instead.
+- Per-request stage timings are logged to `/var/log/portal/bcp-retrieval.log`
+  (`search timing: ... rerank=... total=...`), which is the fastest way to tell a
+  slow query from a queued one.
+
+## Local access (container-only — not reachable from outside)
+
+From inside the container, skip Caddy and the token entirely:
+
+```bash
+curl -s -X POST http://127.0.0.1:17070/search \
+  -H 'Content-Type: application/json' -d '{"query":"..."}'
+```
+
+For a private remote session, forward the internal port over SSH rather than using the
+public one:
+
+```bash
+ssh -p 59336 -L 8080:127.0.0.1:17070 root@75.91.40.84   # then use http://localhost:8080, no token
+```

@@ -1,0 +1,17 @@
+{
+  "architecture": "Pristine Qwen/Qwen3.5-9B -> one balanced multitask SFT/LoRA adapter",
+  "sampling": {
+    "research_tool_trajectories": 0.65,
+    "identity_specific": 0.175,
+    "ordinary_and_exact_controls": 0.175
+  },
+  "identity_categories": {
+    "direct_identity": 0.15,
+    "provenance": 0.1,
+    "ordinary_tasks": 0.25,
+    "exact_controls": 0.2,
+    "injection_resistance": 0.15,
+    "capabilities_limits": 0.15
+  },
+  "guidance": "Sample by optimizer batch, not raw row count. Keep research at 60-70% of batches and mix identity/control batches with research rehearsal; do not stack a second identity LoRA."
+}

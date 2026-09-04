@@ -1,0 +1,46 @@
+{
+  "assistant_messages": 2017,
+  "assistant_with_benchmark_final": 300,
+  "assistant_with_reasoning_content": 307,
+  "assistant_with_think_tags": 2017,
+  "assistant_with_variation_artifact": 571,
+  "lines": 1907,
+  "records_with_query_id": 307,
+  "records_with_top_level_answer": 307,
+  "records_with_top_level_tool_trace": 307,
+  "tool_calls_with_empty_output": 2,
+  "top_level_tool_calls": 5032,
+  "duplicate_user_rows": 1088,
+  "duplicate_exact_conversations": 90,
+  "sources": {
+    "crowther_persona": 1500,
+    "all_batches_1_to_36": 307,
+    "manual_identity_probes": 100
+  },
+  "role_sequences": {
+    "system>user>assistant": 1324,
+    "user>assistant": 483,
+    "user>assistant>user>assistant": 80,
+    "system>user>assistant>user>assistant": 10,
+    "user>assistant>user>assistant>user>assistant": 10
+  },
+  "message_key_sets": {
+    "content,reasoning_content,role": 3652,
+    "content,role": 1716
+  },
+  "tool_names": {
+    "local_knowledge_base_retrieval": 2260,
+    "search": 2234,
+    "get_document": 538
+  },
+  "tool_key_sets": {
+    "arguments,name,output,step": 5032
+  },
+  "declared_tokens": {
+    "min": 15,
+    "median": 100,
+    "mean": 543.93,
+    "max": 12841,
+    "sum": 1037284
+  }
+}
