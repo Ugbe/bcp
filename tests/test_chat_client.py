@@ -244,6 +244,80 @@ Ada &amp; Charles
         self.assertEqual(usage, {"search": 1})
         self.assertTrue(any(message.get("role") == "tool" for message in messages))
 
+    def test_evidence_notes_hide_raw_result_from_planner_and_keep_audit_copy(self):
+        note = (
+            "EVIDENCE NOTE for search #1\n"
+            "Constraints in question: C1 identity\n"
+            "Docs worth attention:\n- [42] supports C1 (quote: \"Ada\")\n"
+            "CANDIDATE_TABLE_JSON: {\"candidates\":[{\"entity\":\"Ada\",\"constraints\":{\"C1\":{\"status\":\"supported\",\"docids\":[\"42\"]}}}]}"
+        )
+        client = _FakeClient(
+            [
+                _FakeResponse(None, tool_calls=_tool_call("search", {"query": "Ada"})),
+                _FakeResponse(note),
+                _FakeResponse(
+                    "Explanation: The evidence identifies Ada. [42]\n"
+                    "Exact Answer: Ada\nConfidence: 95%"
+                ),
+            ]
+        )
+        diagnostics = {}
+
+        messages, _, status = run_conversation_with_tools(
+            client,
+            "test",
+            [{"role": "user", "content": "Who is the person?"}],
+            [],
+            _FakeToolHandler(),
+            max_iterations=3,
+            evidence_notes=True,
+            diagnostics_out=diagnostics,
+        )
+
+        self.assertEqual(status, "completed")
+        tool_message = next(message for message in messages if message.get("role") == "tool")
+        self.assertIn("EVIDENCE NOTE", tool_message["content"])
+        self.assertEqual(tool_message["_raw_tool_output"], '[{"docid": "42", "text": "Ada"}]')
+        self.assertEqual(diagnostics["evidence_note_calls"], 1)
+        self.assertEqual(diagnostics["candidate_table"]["Ada"]["constraints"]["C1"]["status"], "supported")
+        self.assertEqual(client.chat.completions.requests[1]["tools"], [])
+        self.assertEqual(client.chat.completions.requests[1]["temperature"], 0)
+        self.assertNotIn("Ada\"}]", client.chat.completions.requests[2]["messages"][-1]["content"])
+
+    def test_fresh_final_replaces_disagreeing_cited_answer(self):
+        client = _FakeClient(
+            [
+                _FakeResponse(None, tool_calls=_tool_call("search", {"query": "Ada"})),
+                _FakeResponse(
+                    "Explanation: Initial reading. [42]\nExact Answer: Ada\nConfidence: 60%"
+                ),
+                _FakeResponse(
+                    "Explanation: Fresh evidence review. [42]\n"
+                    "Exact Answer: Grace\nConfidence: 90%"
+                ),
+            ]
+        )
+        diagnostics = {}
+
+        messages, _, status = run_conversation_with_tools(
+            client,
+            "test",
+            [{"role": "user", "content": "Who is the person?"}],
+            [],
+            _FakeToolHandler(),
+            max_iterations=3,
+            fresh_final_answer=True,
+            diagnostics_out=diagnostics,
+        )
+
+        self.assertEqual(status, "completed")
+        self.assertEqual(diagnostics["conversation_final_answer"], "Ada")
+        self.assertEqual(diagnostics["fresh_final_answer"], "Grace")
+        self.assertTrue(diagnostics["fresh_final_used"])
+        normalized = _normalize_chat_messages(messages)
+        self.assertEqual(normalized[-1]["output"], "Explanation: Fresh evidence review. [42]\nExact Answer: Grace\nConfidence: 90%")
+        self.assertTrue(client.chat.completions.requests[2]["extra_body"]["chat_template_kwargs"]["enable_thinking"])
+
     def test_forces_final_turn_after_tool_budget(self):
         client = _FakeClient(
             [

@@ -1036,3 +1036,95 @@ processes alive, and the active run/eval folders each contain 191 records, all
 run records with status `completed`. Do not restart this run until the model
 serving budget/endpoints are intentionally restored and a fresh full smoke test
 passes.
+
+## 24. Evidence-note and fresh-final harness treatment — 2026-09-07 09:31 +01:00
+
+Implemented the pasted two-stage research proposal in:
+
+```text
+search_agent/chat_client.py
+tests/test_chat_client.py
+```
+
+The raw-snippet baseline remains unchanged unless the new opt-in flags are used.
+`--evidence-notes` runs one isolated, tools-disabled, temperature-zero summarizer
+call after each productive tool result. The planner receives the rigid evidence
+note instead of raw snippets/documents; each tool message retains
+`_raw_tool_output`, and persisted records additionally expose `raw_tool_outputs`
+for audit. Notes may emit `CANDIDATE_TABLE_JSON`; the runner merges it into a
+per-qid candidate table and injects a compact system-style checkpoint every
+three productive calls. Opened documents and top snippets are retained in state
+for later synthesis.
+
+`--fresh-final-answer` runs a new tools-disabled final synthesis with thinking
+enabled after a completed answer, or after the emergency finalizer is invoked.
+Its prompt is capped by `--fresh-final-prompt-max-tokens` (default 24,000
+approximate tokens) and prioritizes the candidate table, opened documents,
+evidence notes, and the top three snippets. Both conversation and fresh answers,
+status, citation detection, and promotion decision are persisted in diagnostics.
+The fresh answer replaces the conversation answer only when it is valid,
+disagrees, and cites evidence; otherwise the original remains the benchmark
+answer.
+
+New CLI controls are `--evidence-notes`, `--evidence-note-max-tokens`,
+`--fresh-final-answer`, `--fresh-final-max-tokens`, and
+`--fresh-final-prompt-max-tokens`. No live model, retrieval service, benchmark,
+or production run was changed.
+
+Verification completed locally:
+
+```text
+py_compile search_agent/chat_client.py: passed
+chat_client.py --help: passed; all five new flags present
+unittest discovery: 79/79 passed
+```
+
+The expected offline warning that Transformers cannot find PyTorch remains
+harmless because the runner uses the remote OpenAI-compatible model. Next safe
+action: restore and smoke-test the remote model/retrieval endpoints, then run a
+small fixed canary comparing the raw baseline, evidence-note treatment, and
+evidence-note plus fresh-final treatment before any larger benchmark.
+
+## 25. Remote GPU clone-and-run packaging — 2026-09-07
+
+The repository was packaged for a fresh Linux GPU clone that runs the
+OpenAI-compatible BrowseComp harness beside a model server:
+
+```text
+.env.example
+requirements-remote.txt
+scripts/remote/{lib,bootstrap,prepare_queries,serve_vllm,smoke_test,run_benchmark,run_evaluator,start_stack,stop_stack}.sh
+docs/remote_gpu_runbook.md
+README.md
+```
+
+The remote profile is intentionally separate from `pyproject.toml`. It installs
+only the runner, tokenizer, evaluator, dataset bootstrap, and FastAPI dashboard
+dependencies, so it does not replace a Vast image's CUDA/PyTorch/vLLM stack.
+`bootstrap.sh` creates `.venv`, installs `requirements-remote.txt`, and generates
+the ignored `topics-qrels/queries.tsv` from the encrypted public test set when
+needed. `serve_vllm.sh` supports the validated Qwen3.5 base plus
+`CrowtherLabs/Atom-Electron-1.3-9B` adapter, waits for health, records a PID/log,
+and refuses to start over an occupied port. The stack launcher uses a named tmux
+session for dashboard, Azure evaluator, and resumable benchmark processes.
+
+Defaults match the current recommended treatment: two runner threads, 40
+productive calls, 64 iterations, `get_document`, `QUERY_TEMPLATE_RESEARCH_LEDGER`,
+server-compatible novelty requests with local fallback, and 131,072-token
+context compaction. Each treatment must use a new `RUN_NAME`; rerunning the same
+name resumes completed `run_qid_*.json` files. Secrets remain in the ignored
+`.env` and are represented only by placeholders in committed files.
+
+Local verification after packaging:
+
+```text
+py_compile: passed
+chat_client.py --help: passed; context compaction, evidence notes, and fresh final flags present
+unit tests: passed (unittest discovery; no failures)
+git diff --check: passed
+shell syntax check: unavailable in the managed Windows sandbox because bash/WSL process creation returned E_ACCESSDENIED; scripts use bash and should be run through bash on the target Linux instance
+```
+
+No live model, retrieval service, Azure judge, vLLM process, or production
+benchmark was started by this packaging change. On the GPU, fill `.env`, run the
+smoke gate, and start the named tmux stack only after all three endpoints pass.

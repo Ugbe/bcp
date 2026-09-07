@@ -1,0 +1,16 @@
+# Lightweight dependencies for running the remote OpenAI-compatible harness.
+# Do not install pyproject.toml on a GPU image: it includes vllm, torch,
+# deepspeed, tevatron, and local retrieval dependencies that can replace the
+# image's CUDA-compatible stack. Install vLLM separately in the image's tested
+# environment when the GPU is also serving the model.
+datasets>=4.0.0
+fastapi>=0.115.0
+huggingface_hub>=0.34.0
+numpy>=1.26.0
+openai>=1.97.0
+python-dotenv>=1.1.1
+requests>=2.32.0
+rich>=14.0.0
+tqdm>=4.67.1
+transformers>=4.53.2,<5
+uvicorn[standard]>=0.35.0

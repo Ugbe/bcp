@@ -193,6 +193,26 @@ where you can find the decrypted trajectory data in `data/decrypted_run_files/`.
 
 ## 📚 Docs
 
+### Remote GPU harness
+
+For a fresh Linux GPU clone that serves an OpenAI-compatible model and runs the
+benchmark harness, use [docs/remote_gpu_runbook.md](docs/remote_gpu_runbook.md).
+The short path is:
+
+```bash
+git clone https://github.com/Ugbe/bcp.git /workspace/bcp
+cd /workspace/bcp
+cp .env.example .env
+bash scripts/remote/bootstrap.sh
+bash scripts/remote/serve_vllm.sh
+bash scripts/remote/smoke_test.sh
+bash scripts/remote/start_stack.sh
+```
+
+The remote profile installs only the runner/evaluator/dashboard dependencies;
+it does not overwrite the GPU image's CUDA/PyTorch stack with the full
+`pyproject.toml` dependency set.
+
 To reproduce results from BrowseComp-Plus, you can refer to the following docs for running the various search agents:
 - [OpenAI API](docs/openai.md)
 - [Gemini API](docs/gemini.md)
