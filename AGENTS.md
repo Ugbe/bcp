@@ -1103,9 +1103,9 @@ only the runner, tokenizer, evaluator, dataset bootstrap, and FastAPI dashboard
 dependencies, so it does not replace a Vast image's CUDA/PyTorch/vLLM stack.
 `bootstrap.sh` creates `.venv`, installs `requirements-remote.txt`, and generates
 the ignored `topics-qrels/queries.tsv` from the encrypted public test set when
-needed. `serve_vllm.sh` supports the validated Qwen3.5 base plus
-`CrowtherLabs/Atom-Electron-1.3-9B` adapter, waits for health, records a PID/log,
-and refuses to start over an occupied port. The stack launcher uses a named tmux
+needed. `serve_vllm.sh` serves the standalone
+`CrowtherLabs/Qwythos-9B-Analyst` model, waits for health, records a PID/log, and
+refuses to start over an occupied port. The stack launcher uses a named tmux
 session for dashboard, Azure evaluator, and resumable benchmark processes.
 
 Defaults match the current recommended treatment: two runner threads, 40
@@ -1128,3 +1128,26 @@ shell syntax check: unavailable in the managed Windows sandbox because bash/WSL 
 No live model, retrieval service, Azure judge, vLLM process, or production
 benchmark was started by this packaging change. On the GPU, fill `.env`, run the
 smoke gate, and start the named tmux stack only after all three endpoints pass.
+
+## 26. Standalone Qwythos model serving update — 2026-09-07
+
+The remote serving package was updated to use the standalone Hugging Face model
+`CrowtherLabs/Qwythos-9B-Analyst`:
+
+```text
+BASE_MODEL=CrowtherLabs/Qwythos-9B-Analyst
+MODEL_NAME=CrowtherLabs/Qwythos-9B-Analyst
+RUN_NAME=qwythos-9b-analyst-remote
+```
+
+`scripts/remote/serve_vllm.sh` now requires only `BASE_MODEL`, `MODEL_NAME`, and
+the vLLM host/port settings, passes `--served-model-name "$MODEL_NAME"`, and
+does not enable LoRA or reference `ADAPTER_REPO`, `SERVED_MODEL_NAME`, or a
+LoRA rank. The remote `.env.example` and runbook were updated accordingly. The
+older Atom Electron/Qwen3.x adapter instructions elsewhere in this file are
+historical records and are not the active remote clone-and-run configuration.
+
+No live model or benchmark service was changed. The safe next action is to clone
+the pushed commit, confirm the Qwythos repository is accessible from the GPU,
+run `scripts/remote/serve_vllm.sh`, and require the full smoke test to pass
+before starting the benchmark stack.

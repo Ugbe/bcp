@@ -22,9 +22,9 @@ public encrypted test set when it is absent. It intentionally does not install
 the full root `pyproject.toml`; that dependency set includes torch/vLLM and
 local retrieval packages that can overwrite a working CUDA image.
 
-If the image already has vLLM, the model can be served on the same instance.
-The validated Qwen3.5 adapter must be paired with `Qwen/Qwen3.5-9B`; do not use
-the Qwen3.8 GGUF repository with this adapter.
+If the image already has vLLM, the standalone Qwythos model can be served on
+the same instance. This deployment has no LoRA adapter or adapter/base-model
+compatibility requirement.
 
 ```bash
 bash scripts/remote/serve_vllm.sh
@@ -32,8 +32,7 @@ bash scripts/remote/serve_vllm.sh
 
 The launcher writes `runs/vllm.log` and `runs/vllm.pid`, refuses to start when
 the configured port is already serving, waits for `/health`, and prints
-`/v1/models`. Set `ADAPTER_REPO=` for a base-only server. If the image does not
-contain vLLM, use a vLLM-compatible image and install a version tested for its
+`/v1/models`. If the image does not contain vLLM, use a vLLM-compatible image and install a version tested for its
 CUDA/PyTorch stack; do not blindly run `pip install -e .`.
 
 ## Smoke gate and run

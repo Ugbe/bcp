@@ -9,15 +9,10 @@ require_command nvidia-smi
 require_command vllm
 require_command curl
 require_env BASE_MODEL
-require_env SERVED_MODEL_NAME
+require_configured_env MODEL_NAME
 require_env VLLM_PORT
 
-if [[ -z "${ADAPTER_REPO:-}" ]]; then
-  echo "Starting base model ${BASE_MODEL} on ${VLLM_HOST:-0.0.0.0}:${VLLM_PORT}"
-else
-  require_env ADAPTER_REPO
-  echo "Starting ${BASE_MODEL} with adapter ${ADAPTER_REPO} as ${SERVED_MODEL_NAME}"
-fi
+echo "Starting standalone model ${BASE_MODEL} as ${MODEL_NAME} on ${VLLM_HOST:-0.0.0.0}:${VLLM_PORT}"
 
 if curl -fsS "http://127.0.0.1:${VLLM_PORT}/v1/models" >/dev/null 2>&1; then
   echo "A model server already answers on port ${VLLM_PORT}; refusing to start a second one." >&2
@@ -39,20 +34,11 @@ vllm_args=(
   --enable-auto-tool-choice
   --tool-call-parser "${VLLM_TOOL_CALL_PARSER:-qwen3_xml}"
   --reasoning-parser "${VLLM_REASONING_PARSER:-qwen3}"
+  --served-model-name "${MODEL_NAME}"
 )
 
 if bool_env "${VLLM_LANGUAGE_MODEL_ONLY:-1}"; then
   vllm_args+=(--language-model-only)
-fi
-
-if [[ -n "${ADAPTER_REPO:-}" ]]; then
-  vllm_args+=(
-    --enable-lora
-    --max-lora-rank "${VLLM_MAX_LORA_RANK:-16}"
-    --lora-modules "{\"name\":\"${SERVED_MODEL_NAME}\",\"path\":\"${ADAPTER_REPO}\",\"base_model_name\":\"${BASE_MODEL}\"}"
-  )
-else
-  vllm_args+=(--served-model-name "${SERVED_MODEL_NAME}")
 fi
 
 echo "Launching vLLM; log=${log_file}, pid=${pid_file}"
