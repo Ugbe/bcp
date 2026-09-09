@@ -1151,3 +1151,66 @@ No live model or benchmark service was changed. The safe next action is to clone
 the pushed commit, confirm the Qwythos repository is accessible from the GPU,
 run `scripts/remote/serve_vllm.sh`, and require the full smoke test to pass
 before starting the benchmark stack.
+
+## 27. Live evaluation visibility diagnosis — 2026-09-07 21:09 +01:00
+
+The user reported a live remote run named `qwythos-9b-analyst-remote` showing
+`72/830` completed run records but `0/830` evaluations and `0` pending evaluations
+in the remote dashboard. Read-only inspection of the current repository verified:
+
+- `scripts/remote/start_stack.sh` starts dashboard, evaluator, and benchmark in
+  separate tmux windows concurrently.
+- `scripts/remote/run_evaluator.sh` invokes
+  `scripts_evaluation/evaluate_with_azure.py --watch --exit_when_complete` with
+  the same `${run_dir}` and `${eval_dir}` derived from `RUN_NAME`.
+- `evaluate_with_azure.py` polls every 15 seconds, discovers `run_*.json`, and
+  evaluates each file as it appears; it does not intentionally wait for all
+  830 queries.
+- `chat_client.py` writes each completed record through a temporary file and
+  atomic `os.replace`, so completed records are safe to copy while the benchmark
+  continues.
+
+The screenshot therefore indicates an operational visibility/startup problem,
+not the intended evaluation plan: the evaluator may have exited, may have a
+different `RUN_NAME`/directory, or the dashboard may be pointed at a different
+workspace. The remote benchmark writes to `/workspace/bcp/runs/qwythos-9b-analyst-remote`.
+No local or remote process was changed. The safe migration is to stop only the
+remote evaluator window, periodically copy completed run JSON files to a matching
+local directory, and run the Azure evaluator locally against that mirror. Do not
+run two evaluators against the same evaluation output directory, and do not copy
+partial `.tmp` files. Required remote SSH host/port/key details remain user-side
+configuration and must not be recorded here.
+
+During this diagnosis, a concrete path bug was found in the remote launcher:
+`run_evaluator.sh` passed the already run-specific `eval_dir` into
+`evaluate_with_azure.py`, whose `mirror_directory_structure()` appends the run
+name again. The launcher was corrected locally to pass the parent
+`${REPO_ROOT}/evals` directory. The active Vast clone still needs this one-file
+hotfix applied or the evaluator should be started manually with `--eval_dir
+/workspace/bcp/evals`; no active remote process was changed by this local edit.
+
+## 28. tmux benchmark-stats visibility — 2026-09-07
+
+The user reported that after splitting
+`bcp-qwythos-9b-analyst-remote:benchmark` with `/tmp/bcp_stats.py`, attaching to
+the tmux session showed judge progress but not accuracy statistics. The likely
+cause is tmux window selection: `split-window -t ...:benchmark` creates a pane
+in the benchmark window but does not guarantee that a later plain
+`attach-session -t <session>` selects that window. The stack creates dashboard,
+evaluator, and benchmark as separate windows, with evaluator commonly remaining
+the visible/current window. Safe checks are `tmux select-window -t
+<session>:benchmark`, `tmux list-panes -t <session>:benchmark`, and
+`tmux capture-pane` for the stats pane. No remote process or file was changed by
+this diagnosis.
+
+## 29. Sharing the remote terminal — 2026-09-07
+
+The user asked for the password/token requested when sharing the Vast Jupyter
+Terminal URL. This is an access-credential question, not a benchmark runtime
+change. The likely credentials are distinct: Jupyter's own token can be found
+with `jupyter server list`, while Vast's Instance Portal open-button credential
+may be exposed as `OPEN_BUTTON_TOKEN`. Do not record either value here or paste
+it into chat. A Jupyter Terminal provides arbitrary shell/code execution, so the
+safer default for a research lead who only needs progress is a protected,
+read-only dashboard URL rather than a terminal link. No remote service or local
+file was changed.

@@ -14,7 +14,7 @@ mkdir -p "${run_dir}" "${eval_dir}"
 
 run_python scripts_evaluation/evaluate_with_azure.py \
   --input_dir "${run_dir}" \
-  --eval_dir "${eval_dir}" \
+  --eval_dir "${REPO_ROOT}/evals" \
   --query_file "${QUERY_FILE:-topics-qrels/queries.tsv}" \
   --watch \
   --exit_when_complete \
