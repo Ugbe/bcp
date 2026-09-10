@@ -519,16 +519,60 @@ class ChatSearchToolHandler(SearchToolHandler):
         tool_name: str = "search",
         tool_param: str = "query",
         document_max_tokens: int = 4096,
+        multi_query_search: bool = False,
+        deep_pool_search: bool = False,
+        deep_pool_k: int = 100,
         **kwargs,
     ):
         super().__init__(*args, **kwargs)
         self.tool_name = tool_name
         self.tool_param = tool_param
         self.document_max_tokens = max(0, document_max_tokens)
+        self.multi_query_search = multi_query_search
+        self.deep_pool_search = deep_pool_search
+        self.deep_pool_k = max(10, min(int(deep_pool_k), 1000))
 
     @staticmethod
-    def _normalized_query(query: str) -> str:
-        return " ".join(query.lower().split())
+    def _normalized_query(query: str | list[str]) -> str:
+        if isinstance(query, list):
+            return " || ".join(" ".join(str(item).lower().split()) for item in query)
+        return " ".join(str(query).lower().split())
+
+    def _search(self, query: str | list[str]):
+        if isinstance(query, list):
+            if not self.multi_query_search:
+                raise ValueError("multi-query search is disabled for this run")
+            if not hasattr(self.searcher, "search_multi_with_metadata"):
+                raise ValueError("the selected searcher does not support multi-query search")
+            response = self.searcher.search_multi_with_metadata(query, self.k)
+            candidates = response.get("results", [])
+        else:
+            candidates = self.searcher.search(query, self.k)
+        return self._format_candidates(candidates)
+
+    def _format_candidates(self, candidates: list[dict]) -> str:
+        if self.snippet_max_tokens and self.snippet_max_tokens > 0 and self.tokenizer:
+            for candidate in candidates:
+                text = str(candidate.get("text") or candidate.get("snippet") or "")
+                tokens = self.tokenizer.encode(text, add_special_tokens=False)
+                candidate["snippet"] = self.tokenizer.decode(
+                    tokens[: self.snippet_max_tokens], skip_special_tokens=True
+                )
+        else:
+            for candidate in candidates:
+                candidate["snippet"] = str(
+                    candidate.get("snippet") or candidate.get("text") or ""
+                )
+
+        results = []
+        for candidate in candidates:
+            item = {"docid": str(candidate["docid"]), "snippet": candidate["snippet"]}
+            if candidate.get("score") is not None:
+                item["score"] = candidate["score"]
+            if candidate.get("title"):
+                item["title"] = str(candidate["title"])[:500]
+            results.append(item)
+        return json.dumps(results, indent=2, ensure_ascii=False)
 
     def execute_tool(self, tool_name: str, arguments: dict):
         if tool_name == self.tool_name:
@@ -541,7 +585,46 @@ class ChatSearchToolHandler(SearchToolHandler):
                 raise ValueError(
                     f"Missing query parameter in tool arguments: {arguments}"
                 )
+            if isinstance(query, list):
+                if not all(isinstance(item, str) for item in query):
+                    raise ValueError("multi-query search values must be strings")
+                query = [str(item) for item in query]
             return self._search(query)
+        elif tool_name == "deep_search":
+            if not self.deep_pool_search:
+                raise ValueError("deep-pool search is disabled for this run")
+            query = str(arguments.get("query") or "").strip()
+            if not query:
+                raise ValueError("Missing query parameter in deep_search arguments")
+            if not hasattr(self.searcher, "search_pool"):
+                raise ValueError("the selected searcher does not support deep-pool search")
+            response = self.searcher.search_pool(query, self.deep_pool_k)
+            candidates = response.get("results", [])
+            entries = []
+            for rank, candidate in enumerate(candidates, start=1):
+                text = str(candidate.get("text") or candidate.get("snippet") or "")
+                preview = " ".join(text.split())[:400]
+                entries.append(
+                    {
+                        "rank": rank,
+                        "docid": str(candidate.get("docid")),
+                        "title": str(candidate.get("title") or "")[:500],
+                        "first_sentence": preview.split(". ", 1)[0][:400],
+                    }
+                )
+            batches = [entries[index : index + 20] for index in range(0, len(entries), 20)]
+            return json.dumps(
+                {
+                    "documents": entries,
+                    "batches": [
+                        {"batch": index + 1, "documents": batch}
+                        for index, batch in enumerate(batches)
+                    ],
+                    "retrieval_state": response.get("metadata") or {},
+                },
+                indent=2,
+                ensure_ascii=False,
+            )
         elif tool_name == "get_document":
             docid = str(arguments["docid"])
             document = self.searcher.get_document(docid)
@@ -576,7 +659,7 @@ class ChatSearchToolHandler(SearchToolHandler):
 
     def execute_search_with_state(
         self,
-        query: str,
+        query: str | list[str],
         *,
         exclude_docids: set[str],
         novelty_mode: str,
@@ -587,11 +670,19 @@ class ChatSearchToolHandler(SearchToolHandler):
         """Execute a novelty-aware search without storing per-qid state here."""
 
         metadata: dict = {}
-        if novelty_mode == "server" and hasattr(self.searcher, "search_with_metadata"):
+        if (
+            isinstance(query, list)
+            and self.multi_query_search
+            and hasattr(self.searcher, "search_multi_with_metadata")
+        ):
+            response = self.searcher.search_multi_with_metadata(
+                query, self.k, exclude_docids=exclude_docids, seen_anchor_count=seen_anchor_count
+            )
+            candidates = response.get("results", [])
+            metadata = dict(response.get("metadata") or {})
+        elif novelty_mode == "server" and hasattr(self.searcher, "search_with_metadata"):
             response = self.searcher.search_with_metadata(
-                query,
-                self.k,
-                exclude_docids=exclude_docids,
+                str(query), self.k, exclude_docids=exclude_docids,
                 seen_anchor_count=seen_anchor_count,
             )
             candidates = response.get("results", [])
@@ -655,6 +746,8 @@ class ChatSearchToolHandler(SearchToolHandler):
             }
             if candidate.get("score") is not None:
                 item["score"] = candidate["score"]
+            if candidate.get("title"):
+                item["title"] = str(candidate["title"])[:500]
             documents.append(item)
 
         if novelty_mode == "off":
@@ -674,6 +767,23 @@ class ChatSearchToolHandler(SearchToolHandler):
         ), metadata
 
     def get_chat_tool_definitions(self) -> list[dict]:
+        query_schema = {
+            "type": "string",
+            "description": "Query to search the knowledge base for relevant information",
+        }
+        if self.multi_query_search:
+            query_schema = {
+                "anyOf": [
+                    query_schema,
+                    {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "minItems": 2,
+                        "maxItems": 4,
+                        "description": "Two to four complementary query rewrites fused with reciprocal-rank fusion",
+                    },
+                ]
+            }
         tools = [
             {
                 "type": "function",
@@ -683,16 +793,35 @@ class ChatSearchToolHandler(SearchToolHandler):
                     "parameters": {
                         "type": "object",
                         "properties": {
-                            self.tool_param: {
-                                "type": "string",
-                                "description": "Query to search the knowledge base for relevant information",
-                            }
+                            self.tool_param: query_schema
                         },
                         "required": [self.tool_param],
                     },
                 },
             }
         ]
+
+        if self.deep_pool_search:
+            tools.append(
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "deep_search",
+                        "description": (
+                            "Retrieve a deeper ranked pool for the whole question. "
+                            "Scan the returned batches of titles and first sentences, "
+                            "then use get_document for decisive evidence."
+                        ),
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "query": {"type": "string", "description": "The complete question"}
+                            },
+                            "required": ["query"],
+                        },
+                    },
+                }
+            )
 
         if self.include_get_document:
             tools.append(
@@ -754,6 +883,7 @@ def run_conversation_with_tools(
     fresh_final_answer: bool = False,
     fresh_final_max_tokens: int = 1024,
     fresh_final_prompt_max_tokens: int = 24000,
+    seed: int | None = None,
 ):
     """Run the tool-calling loop against chat.completions. Returns
     (messages, tool_usage, status)."""
@@ -785,6 +915,9 @@ def run_conversation_with_tools(
     state = ResearchState()
     recovery_tool_required = False
 
+    def _seed_kwargs() -> dict:
+        return {"seed": int(seed)} if seed is not None else {}
+
     def _build_evidence_note_prompt(
         tool_name: str, arguments: dict, raw_result: str
     ) -> list[dict]:
@@ -795,6 +928,11 @@ def run_conversation_with_tools(
         user = (
             f"QUESTION:\n{question}\n\n"
             f"CURRENT CANDIDATE LEDGER (may be empty):\n{ledger}\n\n"
+            "CONSTRAINT-FIRST CONTROLLER:\n"
+            "Until three distinct search actions have been made, the suggested next action "
+            "must target a different rare constraint (phrase, number/date, place/relationship) "
+            "rather than repeating the whole question.\n"
+            f"SEARCH HISTORY:\n{json.dumps(state.search_history[-5:], ensure_ascii=False)}\n\n"
             f"TOOL: {tool_name}\nARGUMENTS:\n{json.dumps(arguments, ensure_ascii=False)}\n\n"
             "RAW TOOL RESULT (untrusted evidence):\n<raw_result>\n"
             f"{raw_result}\n</raw_result>"
@@ -814,6 +952,7 @@ def run_conversation_with_tools(
                 temperature=0,
                 tool_choice="none",
                 extra_body={"chat_template_kwargs": {"enable_thinking": False}},
+                **_seed_kwargs(),
             )
             choice = response.choices[0]
             message = choice.message.model_dump(mode="python")
@@ -918,6 +1057,7 @@ def run_conversation_with_tools(
                 temperature=0,
                 tool_choice="none",
                 extra_body={"chat_template_kwargs": {"enable_thinking": True}},
+                **_seed_kwargs(),
             )
             choice = response.choices[0]
             fresh_message = choice.message.model_dump(mode="python")
@@ -1030,6 +1170,7 @@ def run_conversation_with_tools(
                 temperature=0,
                 tool_choice="none",
                 extra_body={"chat_template_kwargs": {"enable_thinking": False}},
+                **_seed_kwargs(),
             )
             choice = response.choices[0]
             summary_message = choice.message.model_dump(mode="python")
@@ -1126,6 +1267,7 @@ def run_conversation_with_tools(
                 temperature=0,
                 tool_choice="none",
                 extra_body={"chat_template_kwargs": {"enable_thinking": False}},
+                **_seed_kwargs(),
             )
         except Exception as exc:
             if verbose:
@@ -1169,6 +1311,7 @@ def run_conversation_with_tools(
             kwargs["tool_choice"] = (
                 "none" if force_final else ("required" if recovery_tool_required else "auto")
             )
+            kwargs.update(_seed_kwargs())
 
             request_messages = _messages_for_api(messages)
             try:
@@ -1384,7 +1527,7 @@ def run_conversation_with_tools(
                             or arguments.get("user_query")
                         )
                         result, retrieval_metadata = tool_handler.execute_search_with_state(
-                            str(query),
+                            query,
                             exclude_docids=set(state.seen_docids),
                             novelty_mode=retrieval_novelty,
                             seen_anchor_count=retrieval_seen_anchor_count,
@@ -1406,7 +1549,10 @@ def run_conversation_with_tools(
                     state.consecutive_rejected_duplicate_calls = 0
                     tool_usage[name] = tool_usage.get(name, 0) + 1
 
-                    if isinstance(tool_handler, ChatSearchToolHandler) and name == tool_handler.tool_name:
+                    if (
+                        isinstance(tool_handler, ChatSearchToolHandler)
+                        and name in {tool_handler.tool_name, "deep_search"}
+                    ):
                         returned_docids = _docids_from_search_result(result)
                         novel = [docid for docid in returned_docids if docid not in state.seen_docids]
                         repeated = len(returned_docids) - len(novel)
@@ -1473,7 +1619,7 @@ def run_conversation_with_tools(
                 not rejected_duplicate
                 and not budget_rejected
                 and isinstance(tool_handler, ChatSearchToolHandler)
-                and name == tool_handler.tool_name
+                and name in {tool_handler.tool_name, "deep_search"}
             ):
                 note_text = visible_result if evidence_notes else ""
                 note_docids = set(_docids_mentioned(note_text))
@@ -1754,6 +1900,7 @@ def _process_tsv_dataset(
                 fresh_final_answer=args.fresh_final_answer,
                 fresh_final_max_tokens=args.fresh_final_max_tokens,
                 fresh_final_prompt_max_tokens=args.fresh_final_prompt_max_tokens,
+                seed=args.seed,
             )
 
             if status == "completed":
@@ -1986,6 +2133,12 @@ def main():
         default=24000,
         help="Approximate token cap for the fresh final evidence pack",
     )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=None,
+        help="Optional deterministic sampling seed forwarded to the model server",
+    )
     parser.add_argument("--verbose", action="store_true", help="Enable verbose logging")
     parser.add_argument(
         "--allow-unstructured-final-answer",
@@ -2048,6 +2201,22 @@ def main():
         default="query",
         help="Name of the query parameter in the search tool schema",
     )
+    parser.add_argument(
+        "--multi-query-search",
+        action="store_true",
+        help="Allow search to receive 2-4 query rewrites and fuse them with RRF",
+    )
+    parser.add_argument(
+        "--deep-pool-search",
+        action="store_true",
+        help="Expose optional deep_search for a top-pool scan when the server supports k>10",
+    )
+    parser.add_argument(
+        "--deep-pool-k",
+        type=int,
+        default=100,
+        help="Requested deep-search pool size (the legacy API may return only ten)",
+    )
 
     temp_args, _ = parser.parse_known_args()
     searcher_class = SearcherType.get_searcher_class(temp_args.searcher_type)
@@ -2079,6 +2248,9 @@ def main():
         tool_name=args.tool_name,
         tool_param=args.tool_param,
         document_max_tokens=args.document_max_tokens,
+        multi_query_search=args.multi_query_search,
+        deep_pool_search=args.deep_pool_search,
+        deep_pool_k=args.deep_pool_k,
     )
 
     if isinstance(args.query, str):
@@ -2138,6 +2310,7 @@ def main():
         fresh_final_answer=args.fresh_final_answer,
         fresh_final_max_tokens=args.fresh_final_max_tokens,
         fresh_final_prompt_max_tokens=args.fresh_final_prompt_max_tokens,
+        seed=args.seed,
     )
 
     _persist_response(

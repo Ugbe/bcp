@@ -36,6 +36,8 @@ You are a deep research agent. You need to answer the given question by interact
 
 Treat the tool-call allowance as a ceiling, not a target. Internally maintain a compact research ledger: the leading candidate; identity-critical constraints verified with supporting docids; contradictions; identity-critical constraints still unverified; and the next query most likely to distinguish plausible candidates. An identity-critical constraint is one that could change which entity is the answer or is directly requested by the question. Peripheral corroboration need not be exhaustively verified.
 
+Constraint-first search plan: make the first three productive search actions materially different. Target one rare identity or date constraint, one relationship or affiliation constraint, and one other rare wording or location constraint before broad corroboration. Do not repeat the full question three times. If deep_search is available, use it once for the whole question and then make the next actions constraint-specific.
+
 Do not finalize merely because a plausible name appears. Finalize when the candidate is uniquely supported and no unresolved identity-critical constraint can plausibly change the answer. If such a constraint remains and productive calls are available, make a targeted discriminating search. Prefer get_document when a truncated or ambiguous snippet is decisive. If repeated searches yield little new evidence, compare candidates and change strategy instead of repeating a broad query. If no discriminating action remains, return the best-supported candidate rather than refusing. Do not expose the internal ledger in the final response.
 
 Question: {Question}
@@ -50,6 +52,8 @@ QUERY_TEMPLATE_RESEARCH_LEDGER_NO_GET_DOCUMENT = """
 You are a deep research agent. You need to answer the given question by interacting with a search engine, using the search tool provided. Please perform reasoning and use the tool step by step, in an interleaved manner. You may use the search tool multiple times.
 
 Treat the tool-call allowance as a ceiling, not a target. Internally maintain a compact research ledger: the leading candidate; identity-critical constraints verified with supporting docids; contradictions; identity-critical constraints still unverified; and the next query most likely to distinguish plausible candidates. Do not finalize merely because a plausible name appears. If an unresolved identity-critical constraint could change the answer, make a targeted discriminating search. If searches stagnate, compare candidates and change strategy rather than repeating a broad query. If no discriminating action remains, return the best-supported candidate rather than refusing. Do not expose the ledger in the final response.
+
+Constraint-first search plan: make the first three productive search actions materially different. Target one rare identity or date constraint, one relationship or affiliation constraint, and one other rare wording or location constraint before broad corroboration. Do not repeat the full question three times. If deep_search is available, use it once for the whole question and then make the next actions constraint-specific.
 
 Question: {Question}
 

@@ -1214,3 +1214,64 @@ it into chat. A Jupyter Terminal provides arbitrary shell/code execution, so the
 safer default for a research lead who only needs progress is a protected,
 read-only dashboard URL rather than a terminal link. No remote service or local
 file was changed.
+
+## 30. Roadmap sections 4.3–4.6 implementation — 2026-09-10
+
+The Phase 1 recommendations were implemented locally and remain opt-in at the
+runner API boundary unless enabled by the updated remote `.env.example`:
+
+```text
+search_agent/research_ensemble.py
+search_agent/chat_client.py
+search_agent/prompts.py
+searcher/searchers/remote_api_searcher.py
+scripts/remote/run_ensemble.sh
+scripts/remote/run_benchmark.sh
+scripts_analysis/audit_zero_recall_retrieval.py
+scripts_analysis/compare_phase1_ab.py
+docs/phase1_ab_protocol.md
+tests/test_phase1_treatments.py
+```
+
+The ensemble runner launches independent seeded rollouts with the default
+temperature spread `0.2,0.6,0.6,0.8`, pools deduplicated raw evidence, runs a
+fresh pooled final synthesis with weight two, and writes one evaluator-compatible
+`run_qid_*.json` containing all rollout records and summed tool calls. It supports
+N=1,2,4,8 through `--rollouts` and resumes completed aggregate records.
+
+The remote searcher now supports client-side RRF for two-to-four query rewrites
+and an opt-in `search_pool` request for deep retrieval. The `deep_search` tool
+returns ranked docids, titles, and first-sentence previews in batches suitable
+for evidence notes. Legacy servers that still return ten hits are explicitly
+marked `pool_supported=false`; no top-100 claim is made in that case. The
+constraint-first prompt and evidence-note controller require the first three
+search actions to target distinct rare constraints.
+
+Treatment defaults are now 12,000 output tokens, 32 productive calls,
+temperature 0.25 for single runs, 512-token snippets, server novelty with two
+anchors, evidence notes, fresh final synthesis, and optional multi-query/deep
+pool flags. `scripts/remote/run_ensemble.sh` provides the four-rollout path.
+`docs/phase1_ab_protocol.md` records the frozen dev/failure-100 A/B order and
+comparison command. `scripts_analysis/audit_zero_recall_retrieval.py` audits
+full-question and hand-written constraint retrieval ranks; `compare_phase1_ab.py`
+compares Azure summary accuracy/recall/cost deltas.
+
+Security cleanup: `.env.example` no longer contains the previously present
+retrieval, Azure, or Hugging Face credential values; it contains placeholders.
+The ignored local `.env` is the only place for live secrets. No remote model,
+retrieval service, evaluator, or benchmark was started by this change.
+
+Verification completed:
+
+```text
+python -m py_compile: passed for all changed Python modules
+chat_client.py and research_ensemble.py --help: passed
+unittest discovery: 83/83 passed
+git diff --check: passed
+bash syntax check: unavailable in managed Windows sandbox (E_ACCESSDENIED); run on Linux/Vast before launch
+```
+
+Next safe action: push this change, pull it into a fresh GPU/runner clone, fill
+the placeholder `.env` locally, run the standard smoke gate, then run the fixed
+single/deep-pool/ensemble A/B arms before a full benchmark. Do not reuse an old
+run directory across treatment configurations.

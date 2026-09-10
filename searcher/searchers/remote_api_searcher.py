@@ -126,18 +126,132 @@ class RemoteApiSearcher(BaseSearcher):
             if not isinstance(hit, dict) or "docid" not in hit:
                 continue
             document = hit.get("document") or {}
-            results.append(
-                {
-                    "docid": str(hit["docid"]),
-                    "score": hit.get("score"),
-                    "text": (
-                        hit.get("snippet")
-                        or hit.get("text")
-                        or document.get("text", "")
-                    ),
-                }
-            )
+            item = {
+                "docid": str(hit["docid"]),
+                "score": hit.get("score"),
+                "text": (
+                    hit.get("snippet")
+                    or hit.get("text")
+                    or document.get("text", "")
+                ),
+            }
+            title = document.get("title") or hit.get("title")
+            if title:
+                item["title"] = title
+            results.append(item)
         return results
+
+    @staticmethod
+    def reciprocal_rank_fusion(
+        result_lists: Iterable[Iterable[Dict[str, Any]]], *, k: int = 10, rrf_k: int = 60
+    ) -> List[Dict[str, Any]]:
+        """Fuse ranked result lists while retaining the best document payload.
+
+        RRF is deliberately score-agnostic: the remote service's scores are not
+        comparable across different query rewrites, but rank is stable enough
+        for multi-query retrieval.  The returned ``score`` is the RRF score.
+        """
+
+        fused: Dict[str, Dict[str, Any]] = {}
+        for result_list in result_lists:
+            for rank, item in enumerate(result_list, start=1):
+                if not isinstance(item, dict) or item.get("docid") is None:
+                    continue
+                docid = str(item["docid"])
+                entry = fused.setdefault(docid, dict(item))
+                entry["docid"] = docid
+                entry["score"] = float(entry.get("score") or 0.0) + 1.0 / (
+                    rrf_k + rank
+                )
+        return sorted(
+            fused.values(),
+            key=lambda item: (-float(item.get("score") or 0.0), str(item["docid"])),
+        )[: max(1, int(k))]
+
+    def search_multi_with_metadata(
+        self,
+        queries: Iterable[str],
+        k: int = 10,
+        *,
+        exclude_docids: Optional[Iterable[str]] = None,
+        seen_anchor_count: int = 0,
+    ) -> Dict[str, Any]:
+        """Run 2–4 query rewrites and fuse their ranked results with RRF."""
+
+        normalized = []
+        for query in queries:
+            query = " ".join(str(query).split())
+            if query and query not in normalized:
+                normalized.append(query)
+        if not 2 <= len(normalized) <= 4:
+            raise ValueError("multi-query search requires between 2 and 4 distinct queries")
+
+        result_lists = []
+        metadata = []
+        for query in normalized:
+            response = self.search_with_metadata(
+                query,
+                max(k, 10),
+                exclude_docids=exclude_docids,
+                seen_anchor_count=seen_anchor_count,
+            )
+            result_lists.append(response.get("results", []))
+            metadata.append(response.get("metadata") or {})
+
+        excluded = {str(item) for item in (exclude_docids or [])}
+        fused = [item for item in self.reciprocal_rank_fusion(result_lists, k=max(k, 10)) if str(item.get("docid")) not in excluded]
+        return {
+            "results": fused[:k],
+            "metadata": {
+                "multi_query": True,
+                "queries": normalized,
+                "query_count": len(normalized),
+                "rrf_k": 60,
+                "exclusions_applied": any(item.get("exclusions_applied") for item in metadata),
+                "fallback_applied": any(item.get("fallback_applied") for item in metadata),
+                "novel_count": sum(str(item.get("docid")) not in excluded for item in fused[:k]),
+                "repeated_count": sum(str(item.get("docid")) in excluded for item in fused[:k]),
+                "requested_k": k,
+            },
+        }
+
+    def search_pool(
+        self,
+        query: str,
+        pool_k: int = 100,
+        *,
+        exclude_docids: Optional[Iterable[str]] = None,
+    ) -> Dict[str, Any]:
+        """Request a larger ranked pool when the retrieval server supports it.
+
+        Legacy authenticated servers return only ten hits and may reject the
+        ``k`` field.  The result records that limitation instead of pretending
+        a top-100 scan happened.
+        """
+
+        pool_k = max(10, min(int(pool_k), 1000))
+        excluded = {str(item) for item in (exclude_docids or [])}
+        response = self._request(
+            "POST", "/retrieve", json={"query": query, "k": pool_k}
+        )
+        if response.status_code in (400, 422):
+            response = self._request("POST", "/retrieve", json={"query": query})
+        response.raise_for_status()
+        payload = response.json()
+        candidates = self._normalize_hits(payload)
+        filtered = [item for item in candidates if str(item.get("docid")) not in excluded]
+        supported = len(candidates) >= pool_k or len(candidates) > 10
+        return {
+            "results": filtered[:pool_k],
+            "metadata": {
+                "deep_pool": True,
+                "requested_pool_k": pool_k,
+                "returned_count": len(candidates),
+                "pool_supported": supported,
+                "exclusions_applied": bool(excluded),
+                "fallback_applied": not supported,
+            },
+        }
 
     def search(self, query: str, k: int = 10) -> List[Dict[str, Any]]:
         # The server returns a fixed top-10; slice down to the caller's k.
