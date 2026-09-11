@@ -68,6 +68,10 @@ if bool_env "${ENABLE_DEEP_POOL_SEARCH:-0}"; then
   args+=(--deep-pool-search --deep-pool-k "${DEEP_POOL_K:-100}")
 fi
 
+if bool_env "${ENABLE_BULK_GET_DOCUMENTS:-0}"; then
+  args+=(--bulk-get-documents --bulk-get-documents-max-docs "${BULK_GET_DOCUMENTS_MAX_DOCS:-10}")
+fi
+
 mkdir -p "${run_dir}"
 echo "Starting benchmark in ${run_dir}; completed qids are skipped on resume."
 run_python "${args[@]}"

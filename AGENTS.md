@@ -1275,3 +1275,56 @@ Next safe action: push this change, pull it into a fresh GPU/runner clone, fill
 the placeholder `.env` locally, run the standard smoke gate, then run the fixed
 single/deep-pool/ensemble A/B arms before a full benchmark. Do not reuse an old
 run directory across treatment configurations.
+
+## 31. Dense retrieval API compatibility and model outage — 2026-09-11
+
+The new retrieval service at `http://137.175.22.196:29272` is not compatible
+with the historical hybrid API contract. It exposes `POST /search`, `GET
+/document/{docid}`, and `POST /documents`, whereas the existing harness had
+hard-coded `POST /retrieve` and `GET /get_document`. This was the direct cause
+of the retrieval smoke-test 404; it was not a retrieval-index failure.
+
+The local ignored `.env` now sets `BCP_RETRIEVAL_API=dense` alongside its
+existing `BCP_RETRIEVAL_URL`. The harness change is in
+`searcher/searchers/remote_api_searcher.py`: `--retrieval-api dense` (or that
+environment value) maps search/document requests to the new routes, accepts its
+`{results:[...]}` shape, and supports its one-request `/documents` batch API.
+`legacy` remains the default and preserves the former `/retrieve` contract.
+`BCP_RETRIEVAL_MODEL` is optional and is forwarded only to dense services; use
+it to select a server-advertised encoder deliberately.
+
+`search_agent/chat_client.py` now offers opt-in `--bulk-get-documents` and
+`--bulk-get-documents-max-docs` (default 10), which expose a `get_documents`
+tool that obtains several full documents in one productive tool call while
+retaining the existing per-document token cap. The matching
+`QUERY_TEMPLATE_BATCH_DOCUMENTS` asks for one full-question search followed by
+one batch fetch. It is an experiment: use a fresh canary output directory and
+do not assume a model trained only on `get_document` will reliably call the new
+tool without validating its structured tool-call behavior.
+
+The smoke test was updated to select API paths from `BCP_RETRIEVAL_API` and to
+verify dense batch retrieval. Direct external verification at 2026-09-11 found
+the dense service healthy: `/search` returned 10 hits, `/document/22293`
+returned 384 characters, and `/documents` returned the requested record. The
+same full smoke test confirmed Azure judging (`PONG`) but the configured model
+endpoint `http://180.189.55.43:23295/v1` failed with a connection error; an
+independent `/v1/models` probe showed TCP connection refusal. No model or
+benchmark process was started or changed. Restore/replace that model endpoint,
+then rerun the complete smoke gate before any canary.
+
+The dense service does not advertise server-side novelty exclusions. The
+harness deliberately applies exclusions locally after requesting a deep enough
+ranked list and records this as fallback behavior; `RETRIEVAL_NOVELTY=local` is
+the clearest setting for dense canaries. Its default `browsecomp-overfit`
+encoder was reportedly trained on all 830 benchmark questions and qrels, so it
+is an oracle/upper-bound retrieval experiment only. Do not report its retrieval
+or answer score as held-out BrowseComp performance. Credentials included in the
+pasted service handoff must be rotated; no secret is recorded here.
+
+Local verification after the edit: `py_compile` passed for all changed Python
+files; full `python -m unittest discover -s tests -p 'test_*.py'` passed 86
+tests; and `chat_client.py --help` listed dense/batch controls. A final full
+smoke run using the persisted dense `.env` setting again passed retrieval
+search/document/batch-document and Azure judge; only the already-known model
+connection error remained. Existing unrelated workspace changes were left
+untouched.

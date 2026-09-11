@@ -522,6 +522,8 @@ class ChatSearchToolHandler(SearchToolHandler):
         multi_query_search: bool = False,
         deep_pool_search: bool = False,
         deep_pool_k: int = 100,
+        bulk_get_documents: bool = False,
+        bulk_get_documents_max_docs: int = 10,
         **kwargs,
     ):
         super().__init__(*args, **kwargs)
@@ -531,6 +533,8 @@ class ChatSearchToolHandler(SearchToolHandler):
         self.multi_query_search = multi_query_search
         self.deep_pool_search = deep_pool_search
         self.deep_pool_k = max(10, min(int(deep_pool_k), 1000))
+        self.bulk_get_documents = bulk_get_documents
+        self.bulk_get_documents_max_docs = max(1, min(int(bulk_get_documents_max_docs), 100))
 
     @staticmethod
     def _normalized_query(query: str | list[str]) -> str:
@@ -573,6 +577,26 @@ class ChatSearchToolHandler(SearchToolHandler):
                 item["title"] = str(candidate["title"])[:500]
             results.append(item)
         return json.dumps(results, indent=2, ensure_ascii=False)
+
+    def _bounded_document_payload(self, document: dict, fallback_docid: str) -> dict:
+        text = str(document.get("text") or "")
+        original_tokens = None
+        truncated = False
+        if self.document_max_tokens and self.tokenizer:
+            tokens = self.tokenizer.encode(text, add_special_tokens=False)
+            original_tokens = len(tokens)
+            if len(tokens) > self.document_max_tokens:
+                text = self.tokenizer.decode(
+                    tokens[: self.document_max_tokens], skip_special_tokens=True
+                )
+                truncated = True
+        return {
+            "docid": str(document.get("docid", fallback_docid)),
+            "text": text,
+            "truncated": truncated,
+            "original_tokens": original_tokens,
+            "returned_tokens": self.document_max_tokens if truncated else original_tokens,
+        }
 
     def execute_tool(self, tool_name: str, arguments: dict):
         if tool_name == self.tool_name:
@@ -630,27 +654,25 @@ class ChatSearchToolHandler(SearchToolHandler):
             document = self.searcher.get_document(docid)
             if document is None:
                 return json.dumps({"error": f"Document with docid '{docid}' not found"})
-
-            text = str(document.get("text") or "")
-            original_tokens = None
-            truncated = False
-            if self.document_max_tokens and self.tokenizer:
-                tokens = self.tokenizer.encode(text, add_special_tokens=False)
-                original_tokens = len(tokens)
-                if len(tokens) > self.document_max_tokens:
-                    text = self.tokenizer.decode(
-                        tokens[: self.document_max_tokens], skip_special_tokens=True
-                    )
-                    truncated = True
+            return json.dumps(self._bounded_document_payload(document, docid), ensure_ascii=False)
+        elif tool_name == "get_documents":
+            docids = arguments.get("docids")
+            if not isinstance(docids, list) or not docids or not all(
+                isinstance(docid, (str, int)) for docid in docids
+            ):
+                raise ValueError("get_documents requires a non-empty docids array")
+            normalized = list(dict.fromkeys(str(docid) for docid in docids))
+            if len(normalized) > self.bulk_get_documents_max_docs:
+                raise ValueError(
+                    f"get_documents accepts at most {self.bulk_get_documents_max_docs} docids"
+                )
+            documents = self.searcher.get_documents(normalized)
             return json.dumps(
                 {
-                    "docid": str(document.get("docid", docid)),
-                    "text": text,
-                    "truncated": truncated,
-                    "original_tokens": original_tokens,
-                    "returned_tokens": (
-                        self.document_max_tokens if truncated else original_tokens
-                    ),
+                    "documents": [
+                        self._bounded_document_payload(document, str(document.get("docid", "")))
+                        for document in documents
+                    ]
                 },
                 ensure_ascii=False,
             )
@@ -839,6 +861,33 @@ class ChatSearchToolHandler(SearchToolHandler):
                                 }
                             },
                             "required": ["docid"],
+                        },
+                    },
+                }
+            )
+
+        if getattr(self, "bulk_get_documents", False):
+            tools.append(
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "get_documents",
+                        "description": (
+                            "Retrieve full text for several selected document IDs in one "
+                            "batch. Use after search when comparing the returned candidates."
+                        ),
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "docids": {
+                                    "type": "array",
+                                    "items": {"type": "string"},
+                                    "minItems": 1,
+                                    "maxItems": getattr(self, "bulk_get_documents_max_docs", 10),
+                                    "description": "Document IDs to retrieve together",
+                                }
+                            },
+                            "required": ["docids"],
                         },
                     },
                 }
@@ -1471,23 +1520,27 @@ def run_conversation_with_tools(
                             else:
                                 state.seen_search_queries.add(key)
                                 state.search_history.append(str(query))
-                    elif name == "get_document" and "docid" in arguments:
-                        docid = str(arguments["docid"])
-                        if docid in state.opened_docids:
+                    elif name in {"get_document", "get_documents"}:
+                        requested_docids = (
+                            [str(arguments["docid"])]
+                            if name == "get_document" and "docid" in arguments
+                            else [str(docid) for docid in arguments.get("docids", [])]
+                        )
+                        if requested_docids and all(docid in state.opened_docids for docid in requested_docids):
                             result = json.dumps(
                                 {
                                     "duplicate_document": True,
-                                    "docid": docid,
+                                    "docids": requested_docids,
                                     "message": (
                                         "This document is already present earlier "
                                         "in the conversation."
                                     ),
                                 },
                                     ensure_ascii=False,
-                                )
+                            )
                             rejected_duplicate = True
                         else:
-                            state.opened_docids.add(docid)
+                            state.opened_docids.update(requested_docids)
                 if rejected_duplicate:
                     state.rejected_duplicate_calls += 1
                     state.consecutive_rejected_duplicate_calls += 1
@@ -1606,12 +1659,18 @@ def run_conversation_with_tools(
             if (
                 not rejected_duplicate
                 and not budget_rejected
-                and name == "get_document"
+                and name in {"get_document", "get_documents"}
             ):
                 try:
                     document_payload = json.loads(raw_result)
-                    if isinstance(document_payload, dict) and document_payload.get("docid") is not None:
-                        state.opened_documents[str(document_payload["docid"])] = document_payload
+                    documents = (
+                        document_payload.get("documents", [])
+                        if isinstance(document_payload, dict) and "documents" in document_payload
+                        else [document_payload]
+                    )
+                    for document in documents:
+                        if isinstance(document, dict) and document.get("docid") is not None:
+                            state.opened_documents[str(document["docid"])] = document
                 except (TypeError, json.JSONDecodeError):
                     pass
 
@@ -1998,6 +2057,7 @@ def main():
             "QUERY_TEMPLATE_NO_GET_DOCUMENT_NO_CITATION",
             "QUERY_TEMPLATE_RESEARCH_LEDGER",
             "QUERY_TEMPLATE_RESEARCH_LEDGER_NO_GET_DOCUMENT",
+            "QUERY_TEMPLATE_BATCH_DOCUMENTS",
         ],
         default="QUERY_TEMPLATE_NO_GET_DOCUMENT",
         help="Specify the query template to use (default: %(default)s)",
@@ -2191,6 +2251,17 @@ def main():
         help="Also register the get_document tool",
     )
     parser.add_argument(
+        "--bulk-get-documents",
+        action="store_true",
+        help="Also register get_documents, a bounded bulk full-document tool",
+    )
+    parser.add_argument(
+        "--bulk-get-documents-max-docs",
+        type=int,
+        default=10,
+        help="Maximum docids accepted by one get_documents call (default: 10)",
+    )
+    parser.add_argument(
         "--tool-name",
         default="search",
         help="Name of the search tool exposed to the model (match the model's "
@@ -2251,6 +2322,8 @@ def main():
         multi_query_search=args.multi_query_search,
         deep_pool_search=args.deep_pool_search,
         deep_pool_k=args.deep_pool_k,
+        bulk_get_documents=args.bulk_get_documents,
+        bulk_get_documents_max_docs=args.bulk_get_documents_max_docs,
     )
 
     if isinstance(args.query, str):

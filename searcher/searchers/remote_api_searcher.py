@@ -12,6 +12,7 @@ import os
 import time
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
+from urllib.parse import quote
 
 import requests
 from dotenv import load_dotenv
@@ -45,6 +46,24 @@ class RemoteApiSearcher(BaseSearcher):
             "Defaults to $BCP_TOKEN from the environment or .env.",
         )
         parser.add_argument(
+            "--retrieval-api",
+            choices=("legacy", "dense"),
+            default=os.environ.get("BCP_RETRIEVAL_API", "legacy").strip().lower(),
+            help=(
+                "Remote retrieval API contract: 'legacy' uses /retrieve and "
+                "/get_document; 'dense' uses /search, /document/{docid}, and "
+                "/documents. Defaults to $BCP_RETRIEVAL_API or legacy."
+            ),
+        )
+        parser.add_argument(
+            "--retrieval-model",
+            default=os.environ.get("BCP_RETRIEVAL_MODEL") or None,
+            help=(
+                "Optional encoder name sent to a dense retrieval service, such as "
+                "browsecomp-overfit or Qwen/Qwen3-Embedding-0.6B."
+            ),
+        )
+        parser.add_argument(
             "--retrieval-timeout",
             type=float,
             default=60.0,
@@ -70,6 +89,8 @@ class RemoteApiSearcher(BaseSearcher):
         self.timeout = args.retrieval_timeout
         self.retries = max(1, args.retrieval_retries)
         self.retry_backoff = args.retrieval_retry_backoff
+        self.api = getattr(args, "retrieval_api", "legacy")
+        self.model = getattr(args, "retrieval_model", None)
 
         self.session = requests.Session()
         if args.retrieval_token:
@@ -117,7 +138,10 @@ class RemoteApiSearcher(BaseSearcher):
 
     @staticmethod
     def _normalize_hits(payload: Any) -> List[Dict[str, Any]]:
-        hits = payload.get("result", []) if isinstance(payload, dict) else payload
+        if isinstance(payload, dict):
+            hits = payload.get("result", payload.get("results", []))
+        else:
+            hits = payload
         if not isinstance(hits, list):
             return []
 
@@ -140,6 +164,21 @@ class RemoteApiSearcher(BaseSearcher):
                 item["title"] = title
             results.append(item)
         return results
+
+    def _dense_search_payload(self, query: str, k: int) -> Dict[str, Any]:
+        payload: Dict[str, Any] = {
+            "query": query,
+            "k": max(1, min(int(k), 1000)),
+            "include_text": True,
+        }
+        if self.model:
+            payload["model"] = self.model
+        return payload
+
+    def _search_request(self, query: str, k: int) -> requests.Response:
+        if self.api == "dense":
+            return self._request("POST", "/search", json=self._dense_search_payload(query, k))
+        return self._request("POST", "/retrieve", json={"query": query})
 
     @staticmethod
     def reciprocal_rank_fusion(
@@ -231,10 +270,8 @@ class RemoteApiSearcher(BaseSearcher):
 
         pool_k = max(10, min(int(pool_k), 1000))
         excluded = {str(item) for item in (exclude_docids or [])}
-        response = self._request(
-            "POST", "/retrieve", json={"query": query, "k": pool_k}
-        )
-        if response.status_code in (400, 422):
+        response = self._search_request(query, pool_k)
+        if self.api != "dense" and response.status_code in (400, 422):
             response = self._request("POST", "/retrieve", json={"query": query})
         response.raise_for_status()
         payload = response.json()
@@ -254,11 +291,7 @@ class RemoteApiSearcher(BaseSearcher):
         }
 
     def search(self, query: str, k: int = 10) -> List[Dict[str, Any]]:
-        # The server returns a fixed top-10; slice down to the caller's k.
-        # Snippets are already capped at 512 tokens server-side.
-        # Current authenticated hybrid API exposes /retrieve and wraps hits
-        # in a {"result": [...]} object.
-        response = self._request("POST", "/retrieve", json={"query": query})
+        response = self._search_request(query, k)
         response.raise_for_status()
         return self._normalize_hits(response.json())[:k]
 
@@ -283,6 +316,27 @@ class RemoteApiSearcher(BaseSearcher):
         k, excluded, seen_anchor_count = normalize_novelty_request(
             k, exclude_docids, seen_anchor_count
         )
+        if self.api == "dense":
+            # The dense service has no server-side novelty controls, but it can
+            # return a deep enough ranked list for an exact local selection.
+            fetch_k = min(1000, k + len(excluded))
+            response = self._search_request(query, fetch_k)
+            response.raise_for_status()
+            results, metadata = select_novelty_results(
+                self._normalize_hits(response.json()),
+                k=k,
+                exclude_docids=excluded,
+                seen_anchor_count=seen_anchor_count,
+            )
+            metadata.update(
+                {
+                    "fallback_applied": bool(excluded),
+                    "server_exclusions_applied": False,
+                    "retrieval_api": "dense",
+                }
+            )
+            return {"results": results, "metadata": metadata}
+
         request_payload = {
             "query": query,
             "exclude_docids": sorted(excluded),
@@ -346,12 +400,35 @@ class RemoteApiSearcher(BaseSearcher):
         return {"results": results, "metadata": metadata}
 
     def get_document(self, docid: str) -> Optional[Dict[str, Any]]:
-        response = self._request("GET", "/get_document", params={"docid": docid})
+        if self.api == "dense":
+            response = self._request("GET", f"/document/{quote(str(docid), safe='')}")
+        else:
+            response = self._request("GET", "/get_document", params={"docid": docid})
         if response.status_code == 404:
             return None
         response.raise_for_status()
         data = response.json()
         return {"docid": str(data["docid"]), "text": data["text"]}
+
+    def get_documents(self, docids: Iterable[str]) -> List[Dict[str, Any]]:
+        requested = list(dict.fromkeys(str(docid) for docid in docids))
+        if not requested:
+            return []
+        if self.api != "dense":
+            return super().get_documents(requested)
+
+        response = self._request("POST", "/documents", json={"docids": requested})
+        response.raise_for_status()
+        payload = response.json()
+        rows = payload.get("documents", []) if isinstance(payload, dict) else payload
+        if not isinstance(rows, list):
+            return []
+        by_id = {
+            str(row["docid"]): {"docid": str(row["docid"]), "text": row.get("text", "")}
+            for row in rows
+            if isinstance(row, dict) and row.get("docid") is not None
+        }
+        return [by_id[docid] for docid in requested if docid in by_id]
 
     @property
     def search_type(self) -> str:

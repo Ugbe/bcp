@@ -52,9 +52,11 @@ bash scripts/remote/start_stack.sh
 tmux attach -t "bcp-${RUN_NAME}"
 ```
 
-The default stack uses two runner threads, 40 productive calls, 64 iterations,
-full `get_document`, server/local-compatible novelty handling, and context
-compaction inside a 131,072-token window. Existing completed `run_qid_*.json`
+The default stack uses two runner threads, 12,000 output tokens, 32 productive
+calls, 64 iterations, full `get_document`, 512-token snippets, evidence notes,
+fresh final synthesis, optional multi-query/deep-pool tools, server/local-
+compatible novelty handling, and context compaction inside a 131,072-token
+window. Existing completed `run_qid_*.json`
 files are skipped, so reconnecting and rerunning the same stack resumes safely.
 Use a new `RUN_NAME` for each treatment arm. Stop only the named stack:
 
@@ -69,6 +71,17 @@ overrides in `.env`:
 RUN_NAME=canary-20 MAX_TOOL_CALLS=24 MAX_ITERATIONS=40 \
   bash scripts/remote/run_benchmark.sh
 ```
+
+For the ensemble treatment, use a separate output directory and launcher:
+
+```bash
+ENSEMBLE_RUN_NAME=qwythos-phase1-ensemble4 \
+  bash scripts/remote/run_ensemble.sh
+```
+
+This writes one aggregate record per qid while retaining all four rollout
+records and the pooled vote in diagnostics. Evaluate that directory with the
+same `run_evaluator.sh` process, using the matching `RUN_NAME`.
 
 The dashboard is on `http://127.0.0.1:${DASHBOARD_PORT:-7860}/`; expose it only
 through a deliberate SSH/Vast port forward. Never put bearer, Azure, model, or

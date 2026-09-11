@@ -101,6 +101,8 @@ class Phase1TreatmentTests(unittest.TestCase):
         handler.deep_pool_search = True
         handler.deep_pool_k = 100
         handler.include_get_document = False
+        handler.bulk_get_documents = True
+        handler.bulk_get_documents_max_docs = 10
         handler.k = 10
         handler.searcher = type(
             "Searcher",
@@ -112,9 +114,10 @@ class Phase1TreatmentTests(unittest.TestCase):
         )()
         tools = handler.get_chat_tool_definitions()
         names = [tool["function"]["name"] for tool in tools]
-        self.assertEqual(names, ["search", "deep_search"])
+        self.assertEqual(names, ["search", "deep_search", "get_documents"])
         schema = tools[0]["function"]["parameters"]["properties"]["query"]
         self.assertEqual(schema["anyOf"][1]["maxItems"], 4)
+        self.assertEqual(tools[2]["function"]["parameters"]["properties"]["docids"]["maxItems"], 10)
 
 
 if __name__ == "__main__":

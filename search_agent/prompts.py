@@ -63,6 +63,23 @@ Exact Answer: {{your succinct, final answer}}
 Confidence: {{your confidence score between 0% and 100% for your answer}}
 """.strip()
 
+QUERY_TEMPLATE_BATCH_DOCUMENTS = """
+You are a deep research agent. Answer the question from the retrieval corpus.
+First call search once with the complete question. Then call get_documents once
+with every returned docid (up to ten) so you can compare the full primary
+documents in one retrieval action. Use only the returned evidence; do not
+repeat the same search or re-open a document already included in that batch.
+If a batch would be too broad, pass only the strongest docids. Then give the
+best-supported final answer.
+
+Question: {Question}
+
+Your response should be in the following format:
+Explanation: {{your explanation for your final answer. For this explanation section only, you should cite your evidence documents inline by enclosing their docids in square brackets [] at the end of sentences. For example, [20].}}
+Exact Answer: {{your succinct, final answer}}
+Confidence: {{your confidence score between 0% and 100% for your answer}}
+""".strip()
+
 QUERY_TEMPLATE_ORACLE = """
 I will give you a question and a set of evidence documents, which contains all the necessary information to answer the question. You need to reason and answer the question based on these evidence documents, step by step.
 
@@ -164,5 +181,7 @@ def format_query(query: str, query_template: str | None = None) -> str:
         return QUERY_TEMPLATE_RESEARCH_LEDGER.format(Question=query)
     elif query_template == "QUERY_TEMPLATE_RESEARCH_LEDGER_NO_GET_DOCUMENT":
         return QUERY_TEMPLATE_RESEARCH_LEDGER_NO_GET_DOCUMENT.format(Question=query)
+    elif query_template == "QUERY_TEMPLATE_BATCH_DOCUMENTS":
+        return QUERY_TEMPLATE_BATCH_DOCUMENTS.format(Question=query)
     else:
         raise ValueError(f"Unknown query template: {query_template}")
