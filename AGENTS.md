@@ -1276,6 +1276,39 @@ the placeholder `.env` locally, run the standard smoke gate, then run the fixed
 single/deep-pool/ensemble A/B arms before a full benchmark. Do not reuse an old
 run directory across treatment configurations.
 
+## 31. GitHub push-protection cleanup — 2026-09-11
+
+The first push of the Phase 1 implementation was rejected by GitHub secret
+scanning because commit `ffada24` contained credential values in the historical
+`.env.example` (`AZURE_OPENAI_API_KEY` and `HF_TOKEN`; the retrieval token was
+also present). The current file had already been redacted, but push protection
+correctly scans every commit being introduced, not only the tip.
+
+The unpushed five-commit chain was rebuilt on top of `origin/main` with a local
+backup reference named `pre-secret-cleanup`; that backup was not pushed. The
+sanitized chain is now:
+
+```text
+f32d09c env changes
+aea357f fix evaluator concurrency on remote run
+75b0cb0 section 4.3-4.6 harness implementation
+6acbeb2 section 4.3-4.6 implementation
+9c7e59c Implement Phase 1 BCP research treatments
+```
+
+Before retrying, every pushed commit tree was scanned for credential-like
+`AZURE_OPENAI_API_KEY`, `HF_TOKEN`, and `BCP_TOKEN` values; no matches remained.
+The retry succeeded and GitHub now has `main` at `9c7e59c`. The user's separate
+working changes in `scripts_evaluation/smoke_test.py`,
+`searcher/searchers/base.py`, `tests/test_chat_client.py`, and
+`tests/test_retrieval_novelty.py` were stashed and restored without staging or
+alteration.
+
+The previously exposed credentials must be revoked and replaced even though
+they were removed from the pushed history. Never copy real secrets into
+`.env.example`, documentation, commits, or chat; use only the ignored local
+`.env` or a remote secret manager.
+
 ## 31. Dense retrieval API compatibility and model outage — 2026-09-11
 
 The new retrieval service at `http://137.175.22.196:29272` is not compatible
