@@ -3,6 +3,7 @@ import json
 import os
 import sys
 from pathlib import Path
+from urllib.parse import quote
 
 from dotenv import load_dotenv
 
@@ -18,76 +19,108 @@ try:
 
     s = requests.Session()
     s.headers["Authorization"] = f"Bearer {os.environ['BCP_TOKEN']}"
-    r = s.post(
-        f"{os.environ['BCP_RETRIEVAL_URL']}/retrieve",
-        json={"query": "who invented the telephone"},
-        timeout=60,
-    )
+    retrieval_url = os.environ["BCP_RETRIEVAL_URL"].rstrip("/")
+    retrieval_api = os.environ.get("BCP_RETRIEVAL_API", "legacy").strip().lower()
+    retrieval_model = os.environ.get("BCP_RETRIEVAL_MODEL", "").strip()
+    if retrieval_api not in {"legacy", "dense"}:
+        raise RuntimeError(
+            "BCP_RETRIEVAL_API must be 'legacy' or 'dense', "
+            f"received {retrieval_api!r}"
+        )
+
+    search_body = {"query": "who invented the telephone", "k": 10}
+    if retrieval_api == "dense":
+        search_body["include_text"] = True
+        if retrieval_model:
+            search_body["model"] = retrieval_model
+        search_path = "/search"
+    else:
+        search_path = "/retrieve"
+        search_body = {"query": "who invented the telephone"}
+    r = s.post(f"{retrieval_url}{search_path}", json=search_body, timeout=60)
     r.raise_for_status()
     payload = r.json()
-    hits = payload.get("result", []) if isinstance(payload, dict) else payload
+    hits = (
+        payload.get("results", [])
+        if retrieval_api == "dense" and isinstance(payload, dict)
+        else payload.get("result", []) if isinstance(payload, dict) else payload
+    )
     print(f"   OK - {len(hits)} hits, top docids: {[h['docid'] for h in hits[:5]]}")
-    baseline_docids = [str(hit["docid"]) for hit in hits]
-    exclusion_probe = s.post(
-        f"{os.environ['BCP_RETRIEVAL_URL']}/retrieve",
-        json={
-            "query": "who invented the telephone",
-            "exclude_docids": baseline_docids[:5],
-            "k": 10,
-            "seen_anchor_count": 0,
-        },
-        timeout=60,
-    )
-    exclusion_probe.raise_for_status()
-    exclusion_payload = exclusion_probe.json()
-    exclusion_hits = (
-        exclusion_payload.get("result", [])
-        if isinstance(exclusion_payload, dict)
-        else exclusion_payload
-    )
-    exclusion_meta = (
-        exclusion_payload.get("metadata", {})
-        if isinstance(exclusion_payload, dict)
-        else {}
-    )
-    exclusions_applied = bool(exclusion_meta.get("exclusions_applied"))
-    leaked = sorted(
-        set(baseline_docids[:5]).intersection(
-            str(hit["docid"]) for hit in exclusion_hits
-        )
-    )
-    require_exclusions = os.environ.get(
-        "BCP_REQUIRE_RETRIEVAL_EXCLUSIONS", "0"
-    ).strip().lower() in {"1", "true", "yes"}
-    if exclusions_applied and leaked:
-        raise RuntimeError(
-            "retrieval advertised exclusion support but returned excluded "
-            f"docids: {leaked}"
-        )
-    if exclusions_applied:
+    if not hits:
+        raise RuntimeError("retrieval returned no hits for the smoke query")
+    if retrieval_api == "dense":
         print(
-            "   novelty exclusions OK - "
-            f"{len(exclusion_hits)} hits, metadata={exclusion_meta}"
-        )
-    elif require_exclusions:
-        raise RuntimeError(
-            "retrieval service does not advertise exclusions_applied=true; "
-            "deploy the novelty-capable server or unset "
-            "BCP_REQUIRE_RETRIEVAL_EXCLUSIONS"
+            "   novelty exclusions are client-side for this dense API; use "
+            "RETRIEVAL_NOVELTY=local or server (with local fallback)."
         )
     else:
-        print(
-            "   novelty exclusions unavailable on this server (legacy-compatible "
-            "warning; set BCP_REQUIRE_RETRIEVAL_EXCLUSIONS=1 for treatment runs)"
+        baseline_docids = [str(hit["docid"]) for hit in hits]
+        exclusion_probe = s.post(
+            f"{retrieval_url}/retrieve",
+            json={
+                "query": "who invented the telephone",
+                "exclude_docids": baseline_docids[:5],
+                "k": 10,
+                "seen_anchor_count": 0,
+            },
+            timeout=60,
         )
+        exclusion_probe.raise_for_status()
+        exclusion_payload = exclusion_probe.json()
+        exclusion_hits = (
+            exclusion_payload.get("result", [])
+            if isinstance(exclusion_payload, dict)
+            else exclusion_payload
+        )
+        exclusion_meta = (
+            exclusion_payload.get("metadata", {})
+            if isinstance(exclusion_payload, dict)
+            else {}
+        )
+        exclusions_applied = bool(exclusion_meta.get("exclusions_applied"))
+        leaked = sorted(
+            set(baseline_docids[:5]).intersection(
+                str(hit["docid"]) for hit in exclusion_hits
+            )
+        )
+        require_exclusions = os.environ.get(
+            "BCP_REQUIRE_RETRIEVAL_EXCLUSIONS", "0"
+        ).strip().lower() in {"1", "true", "yes"}
+        if exclusions_applied and leaked:
+            raise RuntimeError(
+                "retrieval advertised exclusion support but returned excluded "
+                f"docids: {leaked}"
+            )
+        if exclusions_applied:
+            print(
+                "   novelty exclusions OK - "
+                f"{len(exclusion_hits)} hits, metadata={exclusion_meta}"
+            )
+        elif require_exclusions:
+            raise RuntimeError(
+                "retrieval service does not advertise exclusions_applied=true; "
+                "deploy the novelty-capable server or unset "
+                "BCP_REQUIRE_RETRIEVAL_EXCLUSIONS"
+            )
+        else:
+            print(
+                "   novelty exclusions unavailable on this server (legacy-compatible "
+                "warning; set BCP_REQUIRE_RETRIEVAL_EXCLUSIONS=1 for treatment runs)"
+            )
     docid = hits[0]["docid"]
-    r = s.get(
-        f"{os.environ['BCP_RETRIEVAL_URL']}/get_document",
-        params={"docid": docid},
-        timeout=60,
-    )
+    if retrieval_api == "dense":
+        r = s.get(f"{retrieval_url}/document/{quote(str(docid), safe='')}", timeout=60)
+    else:
+        r = s.get(f"{retrieval_url}/get_document", params={"docid": docid}, timeout=60)
     r.raise_for_status()
     print(f"   get_document OK - docid {docid}, {len(r.json()['text'])} chars")
+    if retrieval_api == "dense":
+        r = s.post(f"{retrieval_url}/documents", json={"docids": [str(docid)]}, timeout=60)
+        r.raise_for_status()
+        documents = r.json().get("documents", [])
+        if not documents or str(documents[0].get("docid")) != str(docid):
+            raise RuntimeError("bulk /documents response did not contain the requested docid")
+        print("   bulk documents OK - one requested document returned")
 except Exception as e:
     failures.append(f"retrieval: {e}")
     print(f"   FAIL: {e}")

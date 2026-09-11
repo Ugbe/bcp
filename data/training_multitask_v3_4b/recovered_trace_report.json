@@ -1,0 +1,22 @@
+{
+  "input_rows": 500,
+  "accepted_rows": 20,
+  "accepted_unique_parents": 20,
+  "rejected_rows": 480,
+  "rejection_reasons": {
+    "gold_answer_not_literal_in_real_nonplaceholder_tool_output": 379,
+    "reserved_evaluation_holdout_769_to_797": 66,
+    "retained_evidence_does_not_establish_the_asked_relation": 58,
+    "duplicate_parent_variant": 43,
+    "source_answer_not_equal_to_benchmark_ground_truth": 5
+  },
+  "holdout_parent_ids": "769-797 inclusive",
+  "policy": [
+    "benchmark answer must exactly match ground truth",
+    "one row per parent query",
+    "parents in the current evaluation holdout are forbidden",
+    "the gold answer must occur literally inside a real non-placeholder tool result",
+    "manual review must confirm that the retained evidence establishes the relation asked about",
+    "fabricated archive reasoning and final prose are discarded"
+  ]
+}

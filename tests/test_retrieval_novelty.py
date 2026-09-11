@@ -75,13 +75,15 @@ class _FakeSession:
         return next(self.responses)
 
 
-def _remote_searcher(responses, token=None):
+def _remote_searcher(responses, token=None, retrieval_api="legacy", retrieval_model=None):
     args = SimpleNamespace(
         retrieval_url="http://retrieval.invalid",
         retrieval_timeout=1.0,
         retrieval_retries=1,
         retrieval_retry_backoff=0.0,
         retrieval_token=token,
+        retrieval_api=retrieval_api,
+        retrieval_model=retrieval_model,
     )
     searcher = RemoteApiSearcher(args)
     searcher.session = _FakeSession(responses)
@@ -274,6 +276,53 @@ class RemoteApiNoveltyTests(unittest.TestCase):
     def test_authentication_header_is_unchanged(self):
         searcher = _remote_searcher([], token="secret")
         self.assertEqual(searcher.session.headers["Authorization"], "Bearer secret")
+
+    def test_dense_search_uses_new_path_response_shape_and_encoder(self):
+        searcher = _remote_searcher(
+            [_FakeResponse({"results": [{"docid": 7, "score": 0.9, "text": "hit"}]})],
+            retrieval_api="dense",
+            retrieval_model="browsecomp-overfit",
+        )
+
+        results = searcher.search("dense", k=3)
+
+        self.assertEqual(results, [{"docid": "7", "score": 0.9, "text": "hit"}])
+        request = searcher.session.requests[0]
+        self.assertEqual(request["url"], "http://retrieval.invalid/search")
+        self.assertEqual(
+            request["json"],
+            {
+                "query": "dense",
+                "k": 3,
+                "include_text": True,
+                "model": "browsecomp-overfit",
+            },
+        )
+
+    def test_dense_bulk_documents_uses_one_request_and_preserves_order(self):
+        searcher = _remote_searcher(
+            [
+                _FakeResponse(
+                    {
+                        "documents": [
+                            {"docid": "b", "text": "B"},
+                            {"docid": "a", "text": "A"},
+                        ]
+                    }
+                )
+            ],
+            retrieval_api="dense",
+        )
+
+        documents = searcher.get_documents(["a", "b", "a"])
+
+        self.assertEqual(
+            documents,
+            [{"docid": "a", "text": "A"}, {"docid": "b", "text": "B"}],
+        )
+        request = searcher.session.requests[0]
+        self.assertEqual(request["url"], "http://retrieval.invalid/documents")
+        self.assertEqual(request["json"], {"docids": ["a", "b"]})
 
 
 class RetrievalServerContractTests(unittest.TestCase):

@@ -1,0 +1,116 @@
+{
+  "version": 3,
+  "shuffle_seed": 20260828,
+  "identity_control_total": 240,
+  "identity_control_train": 220,
+  "identity_control_validation": 20,
+  "base_research_train_trajectories": 94,
+  "research_training_views": 470,
+  "research_views_per_trajectory": 5,
+  "recovered_grounded_research_rows": 20,
+  "independent_research_parent_questions": 114,
+  "final_train_rows": 710,
+  "final_validation_rows": 32,
+  "research_batch_fraction": 0.6901,
+  "counts_by_category": {
+    "capabilities_limits": 34,
+    "direct_identity": 20,
+    "exact_controls": 51,
+    "injection_resistance": 38,
+    "ordinary_tasks": 66,
+    "provenance": 11,
+    "research_answer_synthesis": 94,
+    "research_decision_early": 94,
+    "research_decision_late": 94,
+    "research_decision_middle": 94,
+    "research_full": 94,
+    "research_recovered": 20
+  },
+  "identity_control_counts_all": {
+    "capabilities_limits": 37,
+    "direct_identity": 24,
+    "exact_controls": 55,
+    "injection_resistance": 40,
+    "ordinary_tasks": 72,
+    "provenance": 12
+  },
+  "identity_control_counts_train": {
+    "capabilities_limits": 34,
+    "direct_identity": 20,
+    "exact_controls": 51,
+    "injection_resistance": 38,
+    "ordinary_tasks": 66,
+    "provenance": 11
+  },
+  "final_train_sha256": "154e1822f89f64b334962b3b6a9bbe4df1bbfcacbff495e1288a6494885e830e",
+  "estimated_total_characters": 7225999,
+  "v2_comparison": {
+    "rows": 809,
+    "research_rows": 94,
+    "research_row_fraction": 0.1162,
+    "rows_missing_query_id_or_tools_contract": 715,
+    "largest_exact_provenance_answer_repetition": 21,
+    "layout": "all research rows followed by category-blocked controls"
+  },
+  "important_limitations": [
+    "Derived research views increase supervised tool decisions but do not add independent questions or facts.",
+    "Only 20 of the 500 proposed trace-bank rows survived ground-truth, evidence, parent-deduplication, semantic, and evaluation-holdout checks.",
+    "Line shuffling is deterministic; Hugging Face Trainer normally reshuffles again each epoch.",
+    "All 114 research parent questions in training are benchmark-contaminated and must stay excluded from evaluation."
+  ],
+  "identity_name": "Atom Electron 1-4B",
+  "target_model": "Qwen/Qwen3.5-4B",
+  "derivation": {
+    "source_dir": "training_multitask_v3",
+    "source_train_sha256": "5db15b5f5fd164d62236dba1679630b86941368a85ef442f12bde67e0bd405ac",
+    "old_name": "Atom Electron 1-9B",
+    "new_name": "Atom Electron 1-4B",
+    "files": {
+      "final_multitask_train.jsonl": {
+        "replacements": 718,
+        "rows": 710,
+        "sha256": "154e1822f89f64b334962b3b6a9bbe4df1bbfcacbff495e1288a6494885e830e"
+      },
+      "final_multitask_validation.jsonl": {
+        "replacements": 35,
+        "rows": 32,
+        "sha256": "7ed26cf8097b6b5c435b45d6d233fdf006f69648b5c2df7f7ffc28e7c145afce"
+      },
+      "identity_control_all.jsonl": {
+        "replacements": 251,
+        "rows": 240,
+        "sha256": "d77680e6ae82e263065e05eae0c23f148082f993172d51a87299fd661a527c9a"
+      },
+      "identity_control_train.jsonl": {
+        "replacements": 228,
+        "rows": 220,
+        "sha256": "a79ccf0602361703fc890fd809649fcdc539249d537c2bb6ea40e6f28b552768"
+      },
+      "identity_control_validation.jsonl": {
+        "replacements": 23,
+        "rows": 20,
+        "sha256": "8c9f7a42de8cb1c46402a4d97071af3be386dcbb02339df7181a7e0d8918cded"
+      },
+      "production_system_prompt.txt": {
+        "replacements": 1,
+        "rows": null,
+        "sha256": "356e400fa12b7c035c0f8412866ceb54fb56c47424bcc5729da638c64f2a1e77"
+      },
+      "recovered_trace_rejected.jsonl": {
+        "replacements": 0,
+        "rows": 480,
+        "sha256": "ae0605ca86dc86d11dc5592e4a062cd4e9481859e716a598c752c7a26166f7a3"
+      },
+      "recovered_trace_report.json": {
+        "replacements": 0,
+        "rows": null,
+        "sha256": "94f984657d83808d79afddde1fda3b45b9ca10a3c173dcebad85e9c9de683053"
+      },
+      "recovered_trace_train.jsonl": {
+        "replacements": 20,
+        "rows": 20,
+        "sha256": "ade13fca332536e5517b574729724ad0c91afd87f684e9a3d0ed4acd0be7927d"
+      }
+    }
+  }
+}

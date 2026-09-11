@@ -151,6 +151,21 @@ class BaseSearcher(ABC):
         """
         pass
 
+    def get_documents(self, docids: Iterable[str]) -> List[Dict[str, Any]]:
+        """Retrieve multiple full documents while preserving request order.
+
+        Searchers with a native batch endpoint should override this.  The
+        sequential fallback keeps the base interface backwards compatible for
+        local and legacy searchers.
+        """
+
+        documents: List[Dict[str, Any]] = []
+        for docid in docids:
+            document = self.get_document(str(docid))
+            if document is not None:
+                documents.append(document)
+        return documents
+
     @property
     @abstractmethod
     def search_type(self) -> str:

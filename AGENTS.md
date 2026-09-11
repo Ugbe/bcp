@@ -1361,3 +1361,69 @@ smoke run using the persisted dense `.env` setting again passed retrieval
 search/document/batch-document and Azure judge; only the already-known model
 connection error remained. Existing unrelated workspace changes were left
 untouched.
+
+## 32. Qwen3.5-4B identity variant and training bundle — 2026-09-11
+
+Question answered: the `Atom-Electron-1.3-9B` LoRA cannot be applied to
+`Qwen/Qwen3.5-4B`.
+LoRA matrices are shaped by the base model's linear layers; the 9B uses
+`hidden_size` 4096 / `intermediate_size` 12288 and the 4B uses 2560 / 9216, so
+the adapter fails to load, and its deltas would be meaningless in 4B weight
+space even if shapes were forced.
+A 4B identity needs a fresh adapter trained from the pristine 4B checkpoint.
+
+Work performed (no GPU, Hub, or training action was taken):
+
+- `scripts_training/derive_identity_variant.py` derives
+  `data/training_multitask_v3_4b/` from `data/training_multitask_v3/` by
+  byte-level substitution of `Atom Electron 1-9B` with `Atom Electron 1-4B`.
+  It refuses a source that already contains the new name, proves that
+  reversing the substitution reproduces every source row, and writes a
+  `dataset_report.json` carrying the source sha256, the new sha256
+  (`154e1822f89f64b334962b3b6a9bbe4df1bbfcacbff495e1288a6494885e830e`), and
+  per-file replacement counts (718 train, 35 validation, 251 controls).
+- `scripts_training/run_training_v2.py` gained `--identity-name`
+  (default `Atom Electron 1-9B`): the trainer refuses any train or validation
+  row whose system prompt lacks that name, and the model card title uses it.
+  Its token-length preflight now also accepts a `BatchEncoding` return.
+- `tests/test_identity_variant.py` checks reproducibility of the committed
+  variant, that only the identity name changed, that the validator passes with
+  zero errors, that the trainer guard accepts the 4B name and rejects the 9B
+  name, and that the report records the derivation.
+- `artifacts/training_multitask_v3_4b_bundle{,.zip}` is the Vast upload:
+  data, the three scripts, and `docs/training_multitask_v3_4b.md` with the
+  full runbook (environment, validator, train, serve, post-train checks).
+
+Verification: `validate_multitask_dataset_v3.py` on the variant reported zero
+errors with the same statistics as v3.
+`Qwen/Qwen3.5-9B` and `Qwen/Qwen3.5-4B` publish byte-identical
+`tokenizer.json` and `chat_template.jinja`; a local tokenizer preflight over
+both corpora gave identical per-row token counts (max 32200 train, 26164
+validation, none over 32768).
+`python -m unittest discover -s tests -p 'test_*.py'` passed 92 tests.
+
+Training command (proven 9B recipe; only base, identity, output, and Hub
+destination differ):
+
+```bash
+python scripts_training/run_training_v2.py \
+  --model-name Qwen/Qwen3.5-4B \
+  --identity-name "Atom Electron 1-4B" \
+  --train-file /workspace/training_multitask_v3_4b_bundle/data/training_multitask_v3_4b/final_multitask_train.jsonl \
+  --validation-file /workspace/training_multitask_v3_4b_bundle/data/training_multitask_v3_4b/final_multitask_validation.jsonl \
+  --output-dir /workspace/atom-electron-multitask-v3-4b \
+  --max-seq-length 32768 --epochs 1 --learning-rate 2e-5 \
+  --batch-size 1 --gradient-accumulation 4 --lora-r 16 --lora-alpha 16 \
+  --push-to-hub --hub-model-id CrowtherLabs/Atom-Electron-1.3-4B
+```
+
+Naming assumptions to confirm before pushing: public name `Atom Electron 1-4B`
+and Hub repository `CrowtherLabs/Atom-Electron-1.3-4B`.
+A different public name is a one-flag rerun of the derivation script.
+Serve with `vllm serve Qwen/Qwen3.5-4B` and the section 5 flags, swapping the
+adapter name, path, and base model.
+If identity does not hold after training while research behaviour is fine,
+rerun at `--learning-rate 5e-5` into a fresh output directory before adding
+epochs.
+This corpus does not add reasoning capability beyond the 4B base; expect a
+lower BrowseComp score than the 9B adapter.

@@ -80,6 +80,12 @@ class _FakeSearcher:
     def get_document(self, docid):
         return {"docid": docid, "text": "one two three four five"}
 
+    def get_documents(self, docids):
+        return [
+            {"docid": str(docid), "text": f"full decisive evidence {docid}"}
+            for docid in docids
+        ]
+
 
 class _LegacySearchOnly:
     def search(self, query, k=10):
@@ -448,6 +454,24 @@ Ada &amp; Charles
         self.assertTrue(result["truncated"])
         self.assertEqual(result["original_tokens"], 5)
         self.assertEqual(result["returned_tokens"], 3)
+
+    def test_get_documents_batches_and_bounds_each_document(self):
+        handler = ChatSearchToolHandler.__new__(ChatSearchToolHandler)
+        handler.searcher = _FakeSearcher()
+        handler.tokenizer = _FakeTokenizer()
+        handler.tool_name = "search"
+        handler.tool_param = "query"
+        handler.document_max_tokens = 3
+        handler.bulk_get_documents_max_docs = 2
+
+        result = json.loads(
+            handler.execute_tool("get_documents", {"docids": ["42", "43", "42"]})
+        )
+
+        self.assertEqual([document["docid"] for document in result["documents"]], ["42", "43"])
+        self.assertTrue(all(document["truncated"] for document in result["documents"]))
+        with self.assertRaisesRegex(ValueError, "at most 2"):
+            handler.execute_tool("get_documents", {"docids": ["1", "2", "3"]})
 
     def test_persistence_uses_atomic_query_id_filename(self):
         messages = [
