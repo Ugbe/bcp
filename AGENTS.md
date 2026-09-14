@@ -1427,3 +1427,33 @@ rerun at `--learning-rate 5e-5` into a fresh output directory before adding
 epochs.
 This corpus does not add reasoning capability beyond the 4B base; expect a
 lower BrowseComp score than the 9B adapter.
+
+## 32. Terminal progress monitor — 2026-09-14
+
+The user could not see live accuracy or recall on a fresh Vast instance.
+Nothing had broken: the evaluator prints only `N runs, X/830 queries judged` while it runs, and the earlier accuracy pane was an ad-hoc `/tmp/bcp_stats.py` that never existed in the repository and disappeared with the old instance.
+
+`scripts_evaluation/monitor_progress.py` is now the supported terminal monitor.
+It reads `runs/<RUN_NAME>/run_*.json` and `evals/<RUN_NAME>/run_*_eval.json` directly, uses only the standard library, and tolerates eval files that are mid-write.
+Accuracy follows `evaluate_with_azure.build_summary`: `final_correct` when present, otherwise legacy `judge_result.correct`.
+Judged recall averages only qids with qrel evidence, matching `evaluation_summary.json`.
+It also reports completed-only accuracy, accuracy over the full target, live recall including unjudged runs, run and eval status counts, tool calls per run, last-hour throughput, ETA, and the latest judged qids.
+It warns when the newest run record is older than `--stall-minutes` (default 15) before the target is reached, or when any run has waited that long for judging.
+
+`scripts/remote/monitor.sh` launches it with `.env` settings and falls back to system `python3` when `.venv` is absent.
+`scripts/remote/start_stack.sh` now opens a fourth `stats` window that stays open if the monitor exits.
+`.env.example` gained `MONITOR_INTERVAL=30`, and the runbook documents the window and the standalone commands.
+
+Verification:
+
+```text
+monitor vs evaluate_with_azure.build_summary on real data:
+  atom-electron-1.3-9b-full-830-docs-v2-128k (legacy evals): 52.77% acc, 54.41% completed-only, 58.27% recall - identical
+  atom-electron-1.3-9b-compaction40-5090-20260902 (final_correct evals): 59.16% acc, 57.66% recall - identical
+live simulation (atomic run writes, delayed eval writes, 1 s polling): every intermediate state observed in order
+tests/test_monitor_progress.py: 9 tests passed
+bash -n: monitor.sh and start_stack.sh passed
+```
+
+tmux itself could not be exercised on Windows.
+On an already running Vast session, add the window with `tmux new-window -t "bcp-${RUN_NAME}" -n stats "bash scripts/remote/monitor.sh; exec bash"` after pulling; this does not touch the benchmark or evaluator processes.

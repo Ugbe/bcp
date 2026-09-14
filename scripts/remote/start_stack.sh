@@ -32,7 +32,10 @@ tmux new-window -t "${session}" -n evaluator \
   "cd '${REPO_ROOT}' && bash '${SCRIPT_DIR}/run_evaluator.sh'"
 tmux new-window -t "${session}" -n benchmark \
   "cd '${REPO_ROOT}' && bash '${SCRIPT_DIR}/run_benchmark.sh'"
+tmux new-window -t "${session}" -n stats \
+  "cd '${REPO_ROOT}' && bash '${SCRIPT_DIR}/monitor.sh'; exec bash"
 
-echo "Started ${session} with dashboard, evaluator, and benchmark windows."
+echo "Started ${session} with dashboard, evaluator, benchmark, and stats windows."
 echo "Attach: tmux attach -t ${session}"
+echo "Live accuracy/recall: tmux select-window -t ${session}:stats (or Ctrl+B then W inside tmux)"
 echo "Dashboard: http://127.0.0.1:${DASHBOARD_PORT:-7860}/"
