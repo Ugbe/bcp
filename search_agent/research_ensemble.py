@@ -207,10 +207,8 @@ def _pooled_final(client, args, qtext: str, evidence: str, seed: int) -> dict:
                 {"role": "system", "content": FRESH_FINAL_SYSTEM_PROMPT},
                 {"role": "user", "content": prompt},
             ],
-            tools=[],
             max_tokens=args.pooled_final_max_tokens,
             temperature=0,
-            tool_choice="none",
             extra_body={"chat_template_kwargs": {"enable_thinking": True}},
             seed=seed,
         )

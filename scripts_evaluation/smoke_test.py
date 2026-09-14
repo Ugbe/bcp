@@ -315,6 +315,46 @@ try:
             f"reasoning_preview={str(reasoning or '')[:300]!r}"
         )
     print("   tool-result continuation OK - returned formatted final answer")
+
+    # The research treatments send request shapes the checks above do not:
+    # tool-less helper calls (evidence notes, fresh final, compaction, emergency
+    # finalizer) and controller messages inserted after tool results. vLLM with
+    # a Qwen3.5 template rejects `tools: []` and any non-leading system message,
+    # which previously passed this gate yet failed every benchmark query.
+    helper = client.chat.completions.create(
+        model=os.environ["MODEL_NAME"],
+        messages=[
+            {"role": "system", "content": "You summarize tool results."},
+            {"role": "user", "content": "Reply with exactly: NOTE"},
+        ],
+        temperature=0.0,
+        max_tokens=64,
+        extra_body={"chat_template_kwargs": {"enable_thinking": False}},
+    )
+    if not (helper.choices[0].message.content or "").strip():
+        raise RuntimeError("tool-less helper request returned empty content")
+    client.chat.completions.create(
+        model=os.environ["MODEL_NAME"],
+        messages=[
+            {"role": "system", "content": "Research with the search tool."},
+            {"role": "user", "content": "Find the contract test answer."},
+            assistant_tool_turn,
+            {
+                "role": "tool",
+                "tool_call_id": calls[0].id,
+                "content": "Contract evidence [731]: ORBIT-731.",
+            },
+            {
+                "role": "user",
+                "content": "Research controller candidate table checkpoint: {}",
+            },
+        ],
+        tools=[contract_tool],
+        tool_choice="auto",
+        temperature=0.0,
+        max_tokens=64,
+    )
+    print("   research-treatment request shapes OK - helper calls and controller checkpoints accepted")
 except Exception as e:
     failures.append(f"model: {e}")
     print(f"   FAIL: {e}")

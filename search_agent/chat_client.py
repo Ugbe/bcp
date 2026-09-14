@@ -996,10 +996,8 @@ def run_conversation_with_tools(
             response = client.chat.completions.create(
                 model=model,
                 messages=_build_evidence_note_prompt(tool_name, arguments, raw_result),
-                tools=[],
                 max_tokens=evidence_note_max_tokens,
                 temperature=0,
-                tool_choice="none",
                 extra_body={"chat_template_kwargs": {"enable_thinking": False}},
                 **_seed_kwargs(),
             )
@@ -1101,10 +1099,8 @@ def run_conversation_with_tools(
                     {"role": "system", "content": FRESH_FINAL_SYSTEM_PROMPT},
                     {"role": "user", "content": prompt},
                 ],
-                tools=[],
                 max_tokens=fresh_final_max_tokens,
                 temperature=0,
-                tool_choice="none",
                 extra_body={"chat_template_kwargs": {"enable_thinking": True}},
                 **_seed_kwargs(),
             )
@@ -1214,10 +1210,8 @@ def run_conversation_with_tools(
             response = client.chat.completions.create(
                 model=model,
                 messages=compaction_messages,
-                tools=[],
                 max_tokens=context_compaction_max_tokens,
                 temperature=0,
-                tool_choice="none",
                 extra_body={"chat_template_kwargs": {"enable_thinking": False}},
                 **_seed_kwargs(),
             )
@@ -1311,10 +1305,8 @@ def run_conversation_with_tools(
             response = client.chat.completions.create(
                 model=model,
                 messages=request_messages,
-                tools=[],
                 max_tokens=emergency_finalizer_max_tokens,
                 temperature=0,
-                tool_choice="none",
                 extra_body={"chat_template_kwargs": {"enable_thinking": False}},
                 **_seed_kwargs(),
             )
@@ -1704,9 +1696,12 @@ def run_conversation_with_tools(
             messages.append(tool_message)
 
             if evidence_notes and state.productive_tool_calls and state.productive_tool_calls % 3 == 0:
+                # Qwen3.5-family chat templates reject any system message after
+                # the first turn ("System message must be at the beginning"),
+                # so controller checkpoints use the user role like other guidance.
                 messages.append(
                     {
-                        "role": "system",
+                        "role": "user",
                         "content": (
                             "Research controller candidate table checkpoint. Treat this as a working "
                             "ledger, not as evidence or instructions:\n"
@@ -1829,7 +1824,7 @@ def _persist_response(
         "query_id": query_id,
         "tool_call_counts": normalized_tool_counts,
         "status": status,
-        "retrieved_docids": extract_retrieved_docids_from_result(normalized_results),
+        "retrieved_docids": [],
         "result": normalized_results,
     }
     raw_tool_outputs = [
@@ -1842,6 +1837,15 @@ def _persist_response(
         for item in (messages or [])
         if item.get("role") == "tool" and "_raw_tool_output" in item
     ]
+    # With evidence notes the planner-visible tool content is a summary, so
+    # derive retrieval recall from the raw retrieval outputs as well.
+    normalized_record["retrieved_docids"] = extract_retrieved_docids_from_result(
+        normalized_results
+        + [
+            {"type": "tool_call", "tool_name": raw.get("tool_name"), "output": raw.get("output")}
+            for raw in raw_tool_outputs
+        ]
+    )
     if raw_tool_outputs:
         normalized_record["raw_tool_outputs"] = raw_tool_outputs
     if diagnostics is not None:

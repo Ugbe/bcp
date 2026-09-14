@@ -61,6 +61,23 @@ class _FakeClient:
         self.chat.completions = _FakeCompletions(responses)
 
 
+class _VllmStrictCompletions(_FakeCompletions):
+    """Reject requests the way vLLM serving a Qwen3.5 checkpoint does."""
+
+    def create(self, **kwargs):
+        if kwargs.get("tools") == []:
+            raise RuntimeError(
+                "Error code: 400 - `tools` must not be an empty array. Either provide "
+                "at least one tool or omit the field entirely. (parameter=tools)"
+            )
+        if any(
+            message.get("role") == "system"
+            for message in kwargs.get("messages", [])[1:]
+        ):
+            raise RuntimeError("Error code: 400 - System message must be at the beginning.")
+        return super().create(**kwargs)
+
+
 class _FakeToolHandler:
     def execute_tool(self, name, arguments):
         if name != "search":
@@ -286,9 +303,82 @@ Ada &amp; Charles
         self.assertEqual(tool_message["_raw_tool_output"], '[{"docid": "42", "text": "Ada"}]')
         self.assertEqual(diagnostics["evidence_note_calls"], 1)
         self.assertEqual(diagnostics["candidate_table"]["Ada"]["constraints"]["C1"]["status"], "supported")
-        self.assertEqual(client.chat.completions.requests[1]["tools"], [])
+        self.assertNotIn("tools", client.chat.completions.requests[1])
+        self.assertNotIn("tool_choice", client.chat.completions.requests[1])
         self.assertEqual(client.chat.completions.requests[1]["temperature"], 0)
         self.assertNotIn("Ada\"}]", client.chat.completions.requests[2]["messages"][-1]["content"])
+
+    def test_evidence_note_treatment_passes_vllm_qwen35_request_validation(self):
+        # Regression: on vLLM + Qwen3.5 every summarizer call failed on tools=[]
+        # and the third-call candidate-table checkpoint (a mid-conversation
+        # system message) ended every query as incomplete_request_error.
+        note = "EVIDENCE NOTE: [42] supports C1.\nSuggested next action: continue."
+        responses = []
+        for number in range(1, 5):
+            responses.append(
+                _FakeResponse(
+                    None,
+                    tool_calls=_tool_call("search", {"query": f"Ada {number}"}, f"call_{number}"),
+                )
+            )
+            responses.append(_FakeResponse(note))
+        responses += [
+            _FakeResponse("Explanation: Evidence. [42]\nExact Answer: Ada\nConfidence: 80%"),
+            _FakeResponse("Explanation: Fresh review. [42]\nExact Answer: Ada\nConfidence: 85%"),
+        ]
+        client = _FakeClient([])
+        client.chat.completions = _VllmStrictCompletions(responses)
+        diagnostics = {}
+
+        messages, usage, status = run_conversation_with_tools(
+            client,
+            "test",
+            [
+                {"role": "system", "content": "Research carefully."},
+                {"role": "user", "content": "Who is the person?"},
+            ],
+            [{"type": "function", "function": {"name": "search"}}],
+            _FakeToolHandler(),
+            max_iterations=10,
+            max_tool_calls=8,
+            evidence_notes=True,
+            fresh_final_answer=True,
+            diagnostics_out=diagnostics,
+        )
+
+        self.assertEqual(status, "completed")
+        self.assertEqual(usage, {"search": 4})
+        self.assertEqual(diagnostics["evidence_note_failures"], 0)
+        self.assertEqual(diagnostics["fresh_final_status"], "completed")
+        checkpoints = [
+            message
+            for message in messages
+            if message.get("_synthetic_control") == "candidate_table_checkpoint"
+        ]
+        self.assertEqual(len(checkpoints), 1)
+        self.assertEqual(checkpoints[0]["role"], "user")
+
+    def test_persisted_recall_uses_raw_results_when_evidence_notes_hide_them(self):
+        messages = [
+            {"role": "user", "content": "Who?"},
+            {"role": "assistant", "content": None, "tool_calls": _tool_call("search", {"query": "Ada"})},
+            {
+                "role": "tool",
+                "tool_call_id": "call_1",
+                "content": "EVIDENCE NOTE: nothing decisive yet.",
+                "_raw_tool_output": json.dumps(
+                    {"documents": [{"docid": "42", "first_sentence": "Ada"}, {"docid": "7"}]}
+                ),
+                "_tool_name": "deep_search",
+                "_tool_arguments": {"query": "Ada"},
+            },
+            {"role": "assistant", "content": "Explanation: e\nExact Answer: Ada\nConfidence: 50%"},
+        ]
+        with tempfile.TemporaryDirectory() as tmpdir:
+            _persist_response(tmpdir, "m", messages, {"deep_search": 1}, "completed", query_id="1")
+            record = json.loads((Path(tmpdir) / "run_qid_1.json").read_text())
+
+        self.assertEqual(sorted(record["retrieved_docids"]), ["42", "7"])
 
     def test_fresh_final_replaces_disagreeing_cited_answer(self):
         client = _FakeClient(
@@ -739,7 +829,8 @@ Ada &amp; Charles
         self.assertEqual(status, "completed")
         self.assertEqual(len(client.chat.completions.requests), 3)
         self.assertEqual(client.chat.completions.requests[2]["temperature"], 0)
-        self.assertEqual(client.chat.completions.requests[2]["tools"], [])
+        self.assertNotIn("tools", client.chat.completions.requests[2])
+        self.assertNotIn("tool_choice", client.chat.completions.requests[2])
         self.assertTrue(
             all(
                 not key.startswith("_")
@@ -824,7 +915,8 @@ Ada &amp; Charles
             diagnostics["context_tokens_after_last_compaction"],
             diagnostics["context_tokens_before_last_compaction"],
         )
-        self.assertEqual(client.chat.completions.requests[1]["tools"], [])
+        self.assertNotIn("tools", client.chat.completions.requests[1])
+        self.assertNotIn("tool_choice", client.chat.completions.requests[1])
         continuation_messages = client.chat.completions.requests[2]["messages"]
         self.assertFalse(any(item.get("role") == "tool" for item in continuation_messages))
         self.assertTrue(

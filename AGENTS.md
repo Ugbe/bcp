@@ -1457,3 +1457,39 @@ bash -n: monitor.sh and start_stack.sh passed
 
 tmux itself could not be exercised on Windows.
 On an already running Vast session, add the window with `tmux new-window -t "bcp-${RUN_NAME}" -n stats "bash scripts/remote/monitor.sh; exec bash"` after pulling; this does not touch the benchmark or evaluator processes.
+
+## 33. Qwen3.5-on-vLLM request failures in the research treatments — 2026-09-14
+
+The Vast run `electron-9b-perfeect-retriever` recorded 25/25 queries as `incomplete_request_error`, 0% accuracy, and 0% recall.
+Run `run_qid_769.json` showed three tool calls, `evidence_note_failures: 3`, and the vLLM error "`tools` must not be an empty array".
+Its first `deep_search` had nevertheless returned five of the six gold evidence documents.
+
+Three independent harness bugs caused this; none was a model or retrieval failure:
+
+1. Every tool-less helper request (evidence note, fresh final, context compaction, emergency finalizer, and the ensemble pooled final) sent `tools=[]` with `tool_choice="none"`.
+   Current vLLM rejects an empty tools array, so every evidence note fell back to "Summarizer unavailable" and the planner never saw any search result.
+2. With evidence notes enabled, every third productive tool call appended the candidate-table checkpoint as a `system` message.
+   The Qwen3.5 chat template raises "System message must be at the beginning", which vLLM returns as a 400, ending the query.
+3. `retrieved_docids` was extracted only from planner-visible tool content.
+   With evidence notes that content is the note, so recall ignored what retrieval actually returned.
+
+Fixes: helper requests now omit `tools` and `tool_choice`; the checkpoint uses the `user` role like the other controller guidance; persisted `retrieved_docids` also scans `raw_tool_outputs`.
+
+The smoke gate had passed because it never sent those request shapes.
+`scripts_evaluation/smoke_test.py` now also sends a tool-less system+user helper request and a tool continuation with a user controller message after the tool result.
+
+Verification:
+
+```text
+E2E reproduction: real chat_client with the remote stack's treatment flags, live dense retrieval, qid 769,
+  against a local fake vLLM that renders every request with the real Qwen/Qwen3.5-4B chat template and rejects tools=[]
+  before fix: incomplete_request_error, 3 tool calls, 3/3 evidence-note failures, record recall 0/6 (retrieval returned 5/6) - matches the Vast record
+  after fix:  completed, 4 tool calls, 0 evidence-note failures, fresh final completed, record recall 5/6
+smoke shapes against the same fake: new shapes accepted; old shapes rejected with the two original errors
+tests: new vLLM-strict and raw-recall regression tests fail on the old runner and pass on the fix; three tests that asserted tools=[] were corrected
+unittest discovery: 103 passed
+```
+
+Records written by the broken harness are invalid for any treatment comparison.
+Quarantine that run directory and its eval directory, then start a fresh `RUN_NAME` after pulling this fix and passing the smoke gate.
+
