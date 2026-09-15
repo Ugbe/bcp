@@ -13,10 +13,22 @@ fi
 cd "${REPO_ROOT}"
 
 if [[ -f .env ]]; then
+  # Values the caller already set (for example `RUN_NAME=x bash script.sh`)
+  # take precedence over .env; otherwise sourcing would silently replace them.
+  declare -A bcp_caller_env=()
+  while IFS= read -r bcp_env_name; do
+    if [[ -n "${!bcp_env_name+x}" ]]; then
+      bcp_caller_env["${bcp_env_name}"]="${!bcp_env_name}"
+    fi
+  done < <(sed -nE 's/^[[:space:]]*(export[[:space:]]+)?([A-Za-z_][A-Za-z0-9_]*)=.*/\2/p' .env)
   set -a
   # shellcheck disable=SC1091
   source .env
   set +a
+  for bcp_env_name in "${!bcp_caller_env[@]}"; do
+    export "${bcp_env_name}=${bcp_caller_env[${bcp_env_name}]}"
+  done
+  unset bcp_env_name bcp_caller_env
 fi
 
 require_command() {

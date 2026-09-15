@@ -1493,3 +1493,18 @@ unittest discovery: 103 passed
 Records written by the broken harness are invalid for any treatment comparison.
 Quarantine that run directory and its eval directory, then start a fresh `RUN_NAME` after pulling this fix and passing the smoke gate.
 
+
+## 34. Perfect-retriever regression triage and `.env` precedence fix - 2026-09-15
+
+`electron-9b-perfect-retriever-v2` scored 36/80 with 99% evidence recall.
+On the same first 80 qids of `queries.tsv`, the earlier compaction40 run scored 57.5% and the original 830 run 47.5%, so the near-perfect retriever bought no accuracy under the Phase 1 treatment stack.
+Suspected causes from the code: seen-docid exclusions plus the three mandated constraint-first searches push gold out of later results; evidence notes replace raw search and document text for the planner; fresh final replaces an answer on mere disagreement; and every treatment changed at once.
+
+`scripts_analysis/triage_treatment_run.py` splits a run into correct and wrong groups by first-search gold rank, gold opened, note failures, compaction, early-final guard, and fresh-final replacements.
+Checked on compaction40: correct runs opened a gold document 92% of the time, wrong runs 41%.
+
+`scripts/remote/lib.sh` sourced `.env` after the caller's environment, so `VAR=x bash scripts/remote/run_benchmark.sh` silently lost `VAR` whenever `.env` also set it, including the runbook's canary example.
+Caller-set variables now win; unset ones still come from `.env`.
+Verified in Git Bash with a temporary clone: no override, inline override, and child-process export all behave as expected; `bash -n` passes for every remote script.
+
+Next action: stop the v2 stack, rerun its completed qids with the raw arm (notes, fresh final, novelty, deep pool, and multi-query off; batch-documents template; bulk `get_documents` on) under a new `RUN_NAME`, then compare with the triage script.
