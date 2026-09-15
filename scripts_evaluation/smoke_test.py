@@ -135,6 +135,19 @@ try:
         base_url=os.environ["MODEL_BASE_URL"],
         api_key=os.environ["MODEL_API_KEY"],
     )
+    sys.path.insert(0, str(Path(__file__).parent))
+    from served_model_check import ALLOW_BASE_ENV, served_model_problem
+
+    served_models = [item.model_dump() for item in client.models.list().data]
+    model_problem = served_model_problem(
+        os.environ["MODEL_NAME"],
+        served_models,
+        allow_base_with_lora=os.environ.get(ALLOW_BASE_ENV, "0").strip().lower()
+        in {"1", "true", "yes", "on"},
+    )
+    if model_problem:
+        raise RuntimeError(model_problem)
+    print(f"   served model OK - {os.environ['MODEL_NAME']}")
     resp = client.chat.completions.create(
         model=os.environ["MODEL_NAME"],
         messages=[{"role": "user", "content": "Reply with exactly: PONG"}],

@@ -1508,3 +1508,26 @@ Caller-set variables now win; unset ones still come from `.env`.
 Verified in Git Bash with a temporary clone: no override, inline override, and child-process export all behave as expected; `bash -n` passes for every remote script.
 
 Next action: stop the v2 stack, rerun its completed qids with the raw arm (notes, fresh final, novelty, deep pool, and multi-query off; batch-documents template; bulk `get_documents` on) under a new `RUN_NAME`, then compare with the triage script.
+
+## 35. LoRA serving guard - 2026-09-15
+
+The Vast `.env` used for the perfect-retriever runs set `BASE_MODEL=Qwen/Qwen3.5-9B` and `MODEL_NAME=Qwen/Qwen3.5-9B`.
+`scripts/remote/serve_vllm.sh` had no adapter support, so that configuration serves and benchmarks the bare base model without `CrowtherLabs/Atom-Electron-1.3-9B`.
+Even with an adapter loaded, requests naming the base model bypass the adapter.
+Verify with `grep '"model"' runs/<run>/run_qid_*.json | sort | uniq -c` and `/v1/models` before trusting those runs as adapter results.
+
+`serve_vllm.sh` now accepts `ADAPTER_REPO`, optional `ADAPTER_NAME` (default: repo basename), and `VLLM_MAX_LORA_RANK` (default 16).
+With an adapter it adds `--enable-lora`, `--max-lora-rank`, and `--lora-modules`, refuses to start unless `MODEL_NAME` equals the adapter name, and fails readiness if `/v1/models` does not list the adapter.
+Without an adapter it behaves as before.
+Verified with fake `vllm`/`curl` binaries in Git Bash: mismatch exits 1 before launch; adapter mode builds the validated section 5 arguments and passes readiness; standalone mode is unchanged.
+
+## 35. Smoke gate rejects base-model name when a LoRA adapter is served - 2026-09-15
+
+The Vast `.env` for the perfect-retriever runs set `MODEL_NAME=Qwen/Qwen3.5-9B` while vLLM served the adapter as `Atom-Electron-1.3-9B` through `--lora-modules`.
+vLLM routes a request by its `model` field, so every benchmark request ran the base weights without the adapter and nothing failed.
+Those runs are base-model measurements, not Atom Electron measurements.
+
+`scripts_evaluation/served_model_check.py` reads `/v1/models` and fails the smoke gate when `MODEL_NAME` is not served, or when it names a base model that has a served LoRA child.
+Set `BCP_ALLOW_BASE_MODEL_WITH_LORA=1` to benchmark the base on purpose.
+
+Verification: `tests/test_served_model_check.py` covers adapter, base-with-adapter, explicit allow, unserved name, and standalone model; a fake vLLM `/v1/models` payload read through the real OpenAI client rejected the base name and accepted the adapter name; full unittest discovery passed.
