@@ -26,6 +26,10 @@ if [[ -f .env ]]; then
   source .env
   set +a
   for bcp_env_name in "${!bcp_caller_env[@]}"; do
+    if [[ "${!bcp_env_name}" != "${bcp_caller_env[${bcp_env_name}]}" ]]; then
+      # Names only: values may be credentials.
+      echo "Note: ${bcp_env_name} from the shell environment overrides .env. Run 'unset ${bcp_env_name}' to use .env." >&2
+    fi
     export "${bcp_env_name}=${bcp_caller_env[${bcp_env_name}]}"
   done
   unset bcp_env_name bcp_caller_env
