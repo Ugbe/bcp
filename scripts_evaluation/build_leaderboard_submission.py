@@ -1,15 +1,20 @@
 """Build the BrowseComp-Plus leaderboard submission JSON from an eval directory.
 
+It depends only on the standard library, so it runs on a judge machine that has
+no OpenAI or vLLM client installed.
+
 Reads the per-query ``run_qid_*_eval.json`` files written by any of the
 evaluators and recomputes every leaderboard field from them: accuracy, evidence
 recall, average tool calls, the RMS calibration error over the model's own
 reported confidence, and the per-query metrics block. The output matches the
 schema the leaderboard maintainer expects, so the result can be emailed as is.
 
-Records are processed in sorted query order. The upstream calibration binning
-(Hendrycks' ``calib_err``) sorts by confidence without breaking ties, so the
-reported value moves by up to about one point with input ordering; a fixed order
-keeps the submitted number reproducible.
+When the eval directory contains an ``evaluation_summary.json``, its accuracy,
+recall, tool averages, and calibration error are used verbatim and the
+recomputed values serve only as a cross-check, with any disagreement printed.
+This matters for calibration: the upstream binning sorts confidences with an
+unstable sort, so answers sharing a confidence value are grouped arbitrarily and
+the metric is not reproducible from the records alone, moving by about a point.
 
 The leaderboard only accepts results judged by Qwen3-32B
 (``scripts_evaluation/evaluate_run.py``). This script refuses an eval directory
@@ -37,7 +42,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from evaluate_with_openai import calculate_calibration_error  # noqa: E402
+from calibration import rms_calibration_error  # noqa: E402
 
 MIN_CONFIDENCES_FOR_CALIBRATION = 100
 
@@ -87,7 +92,19 @@ def build_submission(
     link: str,
     evaluation_date: str,
     search_calls_field: bool,
+    summary: dict | None = None,
+    mismatches_out: list[str] | None = None,
 ) -> dict:
+    """Assemble the submission, preferring an evaluator's own summary values.
+
+    ``summary`` is the evaluator's ``evaluation_summary.json``. Its accuracy,
+    recall, tool averages, and calibration error are authoritative, because the
+    calibration binning is order-sensitive and cannot be reproduced exactly from
+    the records alone. Everything is still recomputed here as a cross-check, and
+    any disagreement is appended to ``mismatches_out``.
+    """
+
+    summary = summary or {}
     total = len(records)
     correct_flags = [record_correct(record) for record in records]
 
@@ -110,17 +127,35 @@ def build_submission(
             confidences.append(confidence)
             confidence_correct.append(correct)
     calibration_error = (
-        calculate_calibration_error(confidences, confidence_correct)
+        rms_calibration_error(confidences, confidence_correct)
         if len(confidences) >= MIN_CONFIDENCES_FOR_CALIBRATION
         else 0.0
     )
 
-    submission = {
-        "LLM": llm,
-        "Retriever": retriever,
+    computed = {
         "Accuracy (%)": round(100.0 * sum(correct_flags) / total, 2),
         "Recall (%)": round(100.0 * sum(recalls) / len(recalls), 2) if recalls else None,
         "Calibration Error (%)": round(calibration_error, 2),
+    }
+    chosen = {}
+    for field, value in computed.items():
+        reported = summary.get(field)
+        if isinstance(reported, (int, float)) and round(float(reported), 2) != value:
+            if mismatches_out is not None:
+                mismatches_out.append(
+                    f"{field}: evaluation_summary.json reports {reported}, "
+                    f"recomputed {value}"
+                )
+        chosen[field] = (
+            round(float(reported), 2) if isinstance(reported, (int, float)) else value
+        )
+
+    submission = {
+        "LLM": llm,
+        "Retriever": retriever,
+        "Accuracy (%)": chosen["Accuracy (%)"],
+        "Recall (%)": chosen["Recall (%)"],
+        "Calibration Error (%)": chosen["Calibration Error (%)"],
         "Link": link,
         "Evaluation Date": evaluation_date,
         "per_query_metrics": [
@@ -136,6 +171,17 @@ def build_submission(
             for record, correct in zip(records, correct_flags)
         ],
     }
+    reported_tools = summary.get("avg_tool_stats")
+    if isinstance(reported_tools, dict) and reported_tools:
+        if mismatches_out is not None:
+            for tool, value in sorted(reported_tools.items()):
+                recomputed = avg_tool_stats.get(str(tool))
+                if recomputed is None or round(float(value), 6) != round(recomputed, 6):
+                    mismatches_out.append(
+                        f"avg_tool_stats[{tool}]: evaluation_summary.json reports {value}, "
+                        f"recomputed {recomputed}"
+                    )
+        avg_tool_stats = {str(tool): float(value) for tool, value in sorted(reported_tools.items())}
     if search_calls_field:
         submission["Search Calls"] = avg_tool_stats.get("search", 0.0)
     else:
@@ -155,14 +201,25 @@ def build_submission(
     return {key: submission[key] for key in ordered if key in submission}
 
 
-def judge_warnings(eval_dir: Path, records: list[dict], expected_queries: int) -> list[str]:
-    warnings = []
+def load_summary(eval_dir: Path) -> dict:
+    """Return the evaluator's own summary, or an empty dict when absent."""
+
     summary_path = eval_dir / "evaluation_summary.json"
-    if summary_path.is_file():
-        try:
-            judged_by = json.loads(summary_path.read_text(encoding="utf-8")).get("judged_by")
-        except (OSError, json.JSONDecodeError):
-            judged_by = None
+    if not summary_path.is_file():
+        return {}
+    try:
+        summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return summary if isinstance(summary, dict) else {}
+
+
+def judge_warnings(
+    summary: dict, records: list[dict], expected_queries: int
+) -> list[str]:
+    warnings = []
+    if summary:
+        judged_by = summary.get("judged_by")
         if judged_by and "qwen" not in str(judged_by).lower():
             warnings.append(
                 f"eval directory was judged by {judged_by!r}; the leaderboard accepts "
@@ -218,13 +275,22 @@ def main() -> None:
     if not records:
         raise SystemExit(f"no run_qid_*_eval.json files under {args.eval_dir}")
 
-    warnings = judge_warnings(args.eval_dir, records, args.expect_queries)
+    summary = load_summary(args.eval_dir)
+    if not summary:
+        print(
+            "WARNING: no evaluation_summary.json in the eval directory; every metric is "
+            "recomputed, and the calibration error can differ from an evaluator's own "
+            "value because its binning is order-sensitive",
+            file=sys.stderr,
+        )
+    warnings = judge_warnings(summary, records, args.expect_queries)
     blocking = [warning for warning in warnings if "leaderboard accepts" in warning]
     for warning in warnings:
         print(f"WARNING: {warning}", file=sys.stderr)
     if blocking and not args.allow_non_qwen_judge:
         raise SystemExit("refusing to write a submission; pass --allow-non-qwen-judge to override")
 
+    mismatches: list[str] = []
     submission = build_submission(
         records,
         llm=args.llm,
@@ -232,7 +298,11 @@ def main() -> None:
         link=args.link,
         evaluation_date=args.evaluation_date,
         search_calls_field=not args.avg_tool_stats,
+        summary=summary,
+        mismatches_out=mismatches,
     )
+    for mismatch in mismatches:
+        print(f"WARNING: {mismatch}", file=sys.stderr)
     args.output.write_text(
         json.dumps(submission, indent=2, ensure_ascii=False), encoding="utf-8"
     )

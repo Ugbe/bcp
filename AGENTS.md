@@ -1540,8 +1540,14 @@ Calibration error is the RMS calibration error over the confidence the agent sta
 
 The script refuses to write a submission when `evaluation_summary.json` records a non-Qwen3 judge, because the leaderboard accepts only `scripts_evaluation/evaluate_run.py` results, and warns when the judged query count is not 830.
 
-Verification against `evals/atom-electron-1.3-9b-full-830-docs-v2-128k`: accuracy 52.77%, recall 58.27%, and both tool averages reproduce `evaluation_summary.json` exactly; calibration error is 25.64 against the recorded 25.76.
-The gap is the upstream Hendrycks `calib_err` binning, which sorts by confidence without breaking ties, so bin membership depends on input order.
-Shuffling the same 830 records gave values from 25.32 to 26.21.
-The builder therefore fixes the order by query id so a resubmission reproduces the same number.
-`tests/test_build_leaderboard_submission.py` covers accuracy, recall, both tool-field variants, per-query rows, the sub-100-confidence zero case, field order, and confidence selection; full unittest discovery passed.
+The builder imports nothing outside the standard library, because the judge machine that runs `evaluate_run.py` need not have the OpenAI client installed; `scripts_evaluation/calibration.py` holds the metric.
+
+Calibration error is not reproducible from the eval records alone.
+The upstream `calib_err` sorts confidences with `numpy.argsort`, whose default quicksort is unstable, so answers sharing a confidence value are binned arbitrarily.
+Our standard-library implementation agrees to nine decimal places when confidences are distinct and differs on real data: 25.95 against the recorded 25.76 for the 830-question run, and shuffling those records gives values from 25.32 to 26.21.
+The builder therefore takes accuracy, recall, tool averages, and calibration error from `evaluation_summary.json` when it exists, recomputes each one as a cross-check, and prints any disagreement.
+With the summary present it reproduced 52.77% accuracy, 58.27% recall, 13.48 search calls, and 25.76 calibration error for that run.
+
+`tests/test_build_leaderboard_submission.py` covers accuracy, recall, both tool-field variants, per-query rows, the sub-100-confidence zero case, field order, confidence selection, summary preference, and mismatch reporting.
+`tests/test_calibration.py` covers input validation, the sub-bin case, the excluded final bin, tie stability, and exact parity with the evaluator implementation on tie-free input.
+Full unittest discovery passed with 125 tests.

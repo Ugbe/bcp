@@ -77,3 +77,43 @@ class BuildSubmissionTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SummaryPreferenceTest(unittest.TestCase):
+    def setUp(self):
+        self.records = [
+            record("1", True, 1.0, {"search": 4}, confidence=90),
+            record("2", False, 0.5, {"search": 6}, confidence=80),
+        ]
+        self.kwargs = dict(
+            llm="agent",
+            retriever="retriever",
+            link="https://example.invalid",
+            evaluation_date="2026-09-16",
+            search_calls_field=True,
+        )
+
+    def test_summary_values_win_and_mismatches_are_reported(self):
+        mismatches = []
+        submission = build_submission(
+            self.records,
+            **self.kwargs,
+            summary={"Accuracy (%)": 50.0, "Calibration Error (%)": 25.76},
+            mismatches_out=mismatches,
+        )
+        self.assertEqual(submission["Accuracy (%)"], 50.0)
+        self.assertEqual(submission["Calibration Error (%)"], 25.76)
+        self.assertEqual(submission["Recall (%)"], 75.0)
+        self.assertEqual(len(mismatches), 1)
+        self.assertIn("Calibration Error (%)", mismatches[0])
+
+    def test_summary_tool_stats_are_used_for_search_calls(self):
+        submission = build_submission(
+            self.records, **self.kwargs, summary={"avg_tool_stats": {"search": 7.5}}
+        )
+        self.assertEqual(submission["Search Calls"], 7.5)
+
+    def test_missing_summary_falls_back_to_recomputation(self):
+        submission = build_submission(self.records, **self.kwargs, summary={})
+        self.assertEqual(submission["Accuracy (%)"], 50.0)
+        self.assertEqual(submission["Search Calls"], 5.0)
