@@ -1531,3 +1531,17 @@ Those runs are base-model measurements, not Atom Electron measurements.
 Set `BCP_ALLOW_BASE_MODEL_WITH_LORA=1` to benchmark the base on purpose.
 
 Verification: `tests/test_served_model_check.py` covers adapter, base-with-adapter, explicit allow, unserved name, and standalone model; a fake vLLM `/v1/models` payload read through the real OpenAI client rejected the base name and accepted the adapter name; full unittest discovery passed.
+
+## 36. Leaderboard submission builder - 2026-09-16
+
+`scripts_evaluation/build_leaderboard_submission.py` turns an eval directory into the JSON the BrowseComp-Plus maintainer expects, in the same field order as the previous Crowther submission: `LLM`, `Retriever`, `Accuracy (%)`, `Recall (%)`, `Search Calls`, `Calibration Error (%)`, `Link`, `Evaluation Date`, and `per_query_metrics`.
+Pass `--avg-tool-stats` for the README's `avg_tool_stats` object when a run uses more than the search tool.
+Calibration error is the RMS calibration error over the confidence the agent stated in its own answer, taken from the judge record and skipping judge parse errors, exactly as the shipped evaluators compute it.
+
+The script refuses to write a submission when `evaluation_summary.json` records a non-Qwen3 judge, because the leaderboard accepts only `scripts_evaluation/evaluate_run.py` results, and warns when the judged query count is not 830.
+
+Verification against `evals/atom-electron-1.3-9b-full-830-docs-v2-128k`: accuracy 52.77%, recall 58.27%, and both tool averages reproduce `evaluation_summary.json` exactly; calibration error is 25.64 against the recorded 25.76.
+The gap is the upstream Hendrycks `calib_err` binning, which sorts by confidence without breaking ties, so bin membership depends on input order.
+Shuffling the same 830 records gave values from 25.32 to 26.21.
+The builder therefore fixes the order by query id so a resubmission reproduces the same number.
+`tests/test_build_leaderboard_submission.py` covers accuracy, recall, both tool-field variants, per-query rows, the sub-100-confidence zero case, field order, and confidence selection; full unittest discovery passed.
