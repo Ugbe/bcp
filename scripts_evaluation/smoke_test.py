@@ -22,14 +22,23 @@ try:
     retrieval_url = os.environ["BCP_RETRIEVAL_URL"].rstrip("/")
     retrieval_api = os.environ.get("BCP_RETRIEVAL_API", "legacy").strip().lower()
     retrieval_model = os.environ.get("BCP_RETRIEVAL_MODEL", "").strip()
-    if retrieval_api not in {"legacy", "dense"}:
+    if retrieval_api not in {"legacy", "dense", "agentir"}:
         raise RuntimeError(
-            "BCP_RETRIEVAL_API must be 'legacy' or 'dense', "
+            "BCP_RETRIEVAL_API must be 'legacy', 'dense', or 'agentir', "
             f"received {retrieval_api!r}"
         )
+    # agentir shares the dense /search and /document/{docid} routes.
+    search_style = "dense" if retrieval_api in {"dense", "agentir"} else "legacy"
 
     search_body = {"query": "who invented the telephone", "k": 10}
-    if retrieval_api == "dense":
+    if retrieval_api == "agentir":
+        search_body["include_text"] = True
+        search_body["reasoning"] = (
+            "The question asks for the inventor of the telephone; "
+            "look for a biography or a history of the invention."
+        )
+        search_path = "/search"
+    elif retrieval_api == "dense":
         search_body["include_text"] = True
         if retrieval_model:
             search_body["model"] = retrieval_model
@@ -42,13 +51,37 @@ try:
     payload = r.json()
     hits = (
         payload.get("results", [])
-        if retrieval_api == "dense" and isinstance(payload, dict)
+        if search_style == "dense" and isinstance(payload, dict)
         else payload.get("result", []) if isinstance(payload, dict) else payload
     )
     print(f"   OK - {len(hits)} hits, top docids: {[h['docid'] for h in hits[:5]]}")
     if not hits:
         raise RuntimeError("retrieval returned no hits for the smoke query")
-    if retrieval_api == "dense":
+    if retrieval_api == "agentir":
+        # Kev silently falls back to AgentIR order when its calls fail, so a
+        # healthy-looking hit list is not proof that reranking happened.
+        kev_scored = payload.get("kev_scored")
+        candidates = payload.get("candidates")
+        print(
+            f"   AgentIR+Kev: kev_scored={kev_scored}/{candidates}, "
+            f"timing={payload.get('timing')}"
+        )
+        if not isinstance(kev_scored, int) or not isinstance(candidates, int):
+            raise RuntimeError(
+                "agentir /search response lacks kev_scored/candidates; "
+                "is BCP_RETRIEVAL_URL the AgentIR+Kev service?"
+            )
+        if kev_scored < candidates:
+            raise RuntimeError(
+                f"Kev scored only {kev_scored} of {candidates} candidates; "
+                "check the Kev server log on the retrieval GPU"
+            )
+    if retrieval_api == "agentir":
+        print(
+            "   novelty exclusions are client-side over the reranked top k; "
+            "RETRIEVAL_NOVELTY=off keeps the service's ranking intact."
+        )
+    elif search_style == "dense":
         print(
             "   novelty exclusions are client-side for this dense API; use "
             "RETRIEVAL_NOVELTY=local or server (with local fallback)."
@@ -108,7 +141,7 @@ try:
                 "warning; set BCP_REQUIRE_RETRIEVAL_EXCLUSIONS=1 for treatment runs)"
             )
     docid = hits[0]["docid"]
-    if retrieval_api == "dense":
+    if search_style == "dense":
         r = s.get(f"{retrieval_url}/document/{quote(str(docid), safe='')}", timeout=60)
     else:
         r = s.get(f"{retrieval_url}/get_document", params={"docid": docid}, timeout=60)

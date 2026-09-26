@@ -47,12 +47,25 @@ class RemoteApiSearcher(BaseSearcher):
         )
         parser.add_argument(
             "--retrieval-api",
-            choices=("legacy", "dense"),
+            choices=("legacy", "dense", "agentir"),
             default=os.environ.get("BCP_RETRIEVAL_API", "legacy").strip().lower(),
             help=(
                 "Remote retrieval API contract: 'legacy' uses /retrieve and "
                 "/get_document; 'dense' uses /search, /document/{docid}, and "
-                "/documents. Defaults to $BCP_RETRIEVAL_API or legacy."
+                "/documents; 'agentir' uses the AgentIR-4B + Kev service "
+                "(/search with the agent's reasoning, /document/{docid}, no "
+                "batch endpoint). Defaults to $BCP_RETRIEVAL_API or legacy."
+            ),
+        )
+        parser.add_argument(
+            "--retrieval-reasoning-max-chars",
+            type=int,
+            default=int(os.environ.get("BCP_RETRIEVAL_REASONING_MAX_CHARS", "12000")),
+            help=(
+                "agentir API only: send at most this many trailing characters of "
+                "the agent's reasoning with each search (0 disables). The server "
+                "truncates its embedded text from the right, so an unbounded "
+                "reasoning prefix would cut off the query itself."
             ),
         )
         parser.add_argument(
@@ -91,6 +104,9 @@ class RemoteApiSearcher(BaseSearcher):
         self.retry_backoff = args.retrieval_retry_backoff
         self.api = getattr(args, "retrieval_api", "legacy")
         self.model = getattr(args, "retrieval_model", None)
+        self.reasoning_max_chars = max(
+            0, int(getattr(args, "retrieval_reasoning_max_chars", 0) or 0)
+        )
 
         self.session = requests.Session()
         if args.retrieval_token:
@@ -165,19 +181,35 @@ class RemoteApiSearcher(BaseSearcher):
             results.append(item)
         return results
 
-    def _dense_search_payload(self, query: str, k: int) -> Dict[str, Any]:
+    @property
+    def accepts_reasoning(self) -> bool:
+        """True when searches should carry the agent's reasoning."""
+        return self.api == "agentir" and self.reasoning_max_chars > 0
+
+    def _dense_search_payload(
+        self, query: str, k: int, reasoning: Optional[str] = None
+    ) -> Dict[str, Any]:
         payload: Dict[str, Any] = {
             "query": query,
             "k": max(1, min(int(k), 1000)),
             "include_text": True,
         }
-        if self.model:
+        if self.api == "agentir":
+            reasoning = (reasoning or "").strip()
+            if reasoning and self.accepts_reasoning:
+                # Keep the tail: the thoughts right before the call explain it.
+                payload["reasoning"] = reasoning[-self.reasoning_max_chars :]
+        elif self.model:
             payload["model"] = self.model
         return payload
 
-    def _search_request(self, query: str, k: int) -> requests.Response:
-        if self.api == "dense":
-            return self._request("POST", "/search", json=self._dense_search_payload(query, k))
+    def _search_request(
+        self, query: str, k: int, reasoning: Optional[str] = None
+    ) -> requests.Response:
+        if self.api in ("dense", "agentir"):
+            return self._request(
+                "POST", "/search", json=self._dense_search_payload(query, k, reasoning)
+            )
         return self._request("POST", "/retrieve", json={"query": query})
 
     @staticmethod
@@ -214,6 +246,7 @@ class RemoteApiSearcher(BaseSearcher):
         *,
         exclude_docids: Optional[Iterable[str]] = None,
         seen_anchor_count: int = 0,
+        reasoning: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Run 2–4 query rewrites and fuse their ranked results with RRF."""
 
@@ -233,6 +266,7 @@ class RemoteApiSearcher(BaseSearcher):
                 max(k, 10),
                 exclude_docids=exclude_docids,
                 seen_anchor_count=seen_anchor_count,
+                reasoning=reasoning,
             )
             result_lists.append(response.get("results", []))
             metadata.append(response.get("metadata") or {})
@@ -260,6 +294,7 @@ class RemoteApiSearcher(BaseSearcher):
         pool_k: int = 100,
         *,
         exclude_docids: Optional[Iterable[str]] = None,
+        reasoning: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Request a larger ranked pool when the retrieval server supports it.
 
@@ -270,8 +305,8 @@ class RemoteApiSearcher(BaseSearcher):
 
         pool_k = max(10, min(int(pool_k), 1000))
         excluded = {str(item) for item in (exclude_docids or [])}
-        response = self._search_request(query, pool_k)
-        if self.api != "dense" and response.status_code in (400, 422):
+        response = self._search_request(query, pool_k, reasoning)
+        if self.api == "legacy" and response.status_code in (400, 422):
             response = self._request("POST", "/retrieve", json={"query": query})
         response.raise_for_status()
         payload = response.json()
@@ -290,8 +325,10 @@ class RemoteApiSearcher(BaseSearcher):
             },
         }
 
-    def search(self, query: str, k: int = 10) -> List[Dict[str, Any]]:
-        response = self._search_request(query, k)
+    def search(
+        self, query: str, k: int = 10, *, reasoning: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        response = self._search_request(query, k, reasoning)
         response.raise_for_status()
         return self._normalize_hits(response.json())[:k]
 
@@ -302,6 +339,7 @@ class RemoteApiSearcher(BaseSearcher):
         *,
         exclude_docids: Optional[Iterable[str]] = None,
         seen_anchor_count: int = 0,
+        reasoning: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Use the novelty-aware API, with a safe fallback for old servers.
 
@@ -316,11 +354,15 @@ class RemoteApiSearcher(BaseSearcher):
         k, excluded, seen_anchor_count = normalize_novelty_request(
             k, exclude_docids, seen_anchor_count
         )
-        if self.api == "dense":
-            # The dense service has no server-side novelty controls, but it can
-            # return a deep enough ranked list for an exact local selection.
-            fetch_k = min(1000, k + len(excluded))
-            response = self._search_request(query, fetch_k)
+        if self.api in ("dense", "agentir"):
+            # Neither service has server-side novelty controls. The dense one
+            # can return a deep enough ranked list for an exact local
+            # selection. AgentIR+Kev cannot: it reranks max(k, candidates)
+            # documents with one Kev call each, so over-fetching would multiply
+            # reranker load and change which candidates get reranked. Filter
+            # its normal top k instead.
+            fetch_k = k if self.api == "agentir" else min(1000, k + len(excluded))
+            response = self._search_request(query, fetch_k, reasoning)
             response.raise_for_status()
             results, metadata = select_novelty_results(
                 self._normalize_hits(response.json()),
@@ -332,7 +374,7 @@ class RemoteApiSearcher(BaseSearcher):
                 {
                     "fallback_applied": bool(excluded),
                     "server_exclusions_applied": False,
-                    "retrieval_api": "dense",
+                    "retrieval_api": self.api,
                 }
             )
             return {"results": results, "metadata": metadata}
@@ -400,7 +442,7 @@ class RemoteApiSearcher(BaseSearcher):
         return {"results": results, "metadata": metadata}
 
     def get_document(self, docid: str) -> Optional[Dict[str, Any]]:
-        if self.api == "dense":
+        if self.api in ("dense", "agentir"):
             response = self._request("GET", f"/document/{quote(str(docid), safe='')}")
         else:
             response = self._request("GET", "/get_document", params={"docid": docid})
@@ -415,6 +457,7 @@ class RemoteApiSearcher(BaseSearcher):
         if not requested:
             return []
         if self.api != "dense":
+            # legacy and agentir have no batch endpoint; fetch one at a time.
             return super().get_documents(requested)
 
         response = self._request("POST", "/documents", json={"docids": requested})

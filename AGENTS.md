@@ -1551,3 +1551,32 @@ With the summary present it reproduced 52.77% accuracy, 58.27% recall, 13.48 sea
 `tests/test_build_leaderboard_submission.py` covers accuracy, recall, both tool-field variants, per-query rows, the sub-100-confidence zero case, field order, confidence selection, summary preference, and mismatch reporting.
 `tests/test_calibration.py` covers input validation, the sub-bin case, the excluded final bin, tie stability, and exact parity with the evaluator implementation on tie-free input.
 Full unittest discovery passed with 125 tests.
+
+## 37. AgentIR-4B + Kev retrieval support - 2026-09-26
+
+The user plans a new Atom Electron 1.3 9B run against a new retrieval service: AgentIR-4B dense retrieval of the top 50 documents, filtered to 10 by Kev-4B yes/no relevance calls, on its own GPU behind a Caddy bearer token.
+Its API is `POST /search` with `{query, reasoning?, k?, candidates?, include_text?}`, `GET /document/{docid}`, `/health`, and `/info`; there is no `/documents` batch route.
+AgentIR embeds `Reasoning: <agent reasoning>\n\nQuery: <query>`, so without the agent's reasoning it degrades to `Reasoning: Empty`.
+
+Harness changes:
+
+- `searcher/searchers/remote_api_searcher.py`: `--retrieval-api agentir` (or `BCP_RETRIEVAL_API=agentir`) uses the dense routes, sends the last `--retrieval-reasoning-max-chars` characters of reasoning (default 12000, `BCP_RETRIEVAL_REASONING_MAX_CHARS`, 0 disables), never sends an encoder name, fetches documents one at a time, and never over-fetches for novelty. Over-fetching would make the server run one Kev call per extra candidate and change which candidates Kev reranks.
+  The server truncates its embedded text from the right at 8192 tokens, so unbounded reasoning would cut off the query; that is why only the tail is sent.
+- `search_agent/chat_client.py`: the assistant turn's `reasoning`/`reasoning_content` is passed to every search path (plain, novelty, multi-query, deep pool) only when the searcher reports `accepts_reasoning`; other searchers are unchanged.
+- `scripts_evaluation/smoke_test.py`: accepts `agentir`, sends a reasoning field, skips `/documents`, and fails when `kev_scored` is below `candidates`, because the service silently falls back to AgentIR order when Kev calls fail.
+- `.env.example` and `docs/remote_gpu_runbook.md` document the settings: `RETRIEVAL_NOVELTY=off`, multi-query, deep-pool, and bulk documents off.
+
+Verification:
+
+```text
+tests/test_agentir_retrieval.py: 7 tests; 7 fail/error on the previous code, all pass now
+  includes run_conversation_with_tools -> real RemoteApiSearcher: turn reasoning reaches the /search body with novelty off and server
+unittest discovery: 132 passed
+smoke_test.py retrieval section against a local fake of the AgentIR+Kev API with bearer auth:
+  kev_scored 50/50 -> OK, reasoning received by the server; kev_scored 37/50 -> FAIL with the Kev message
+```
+
+No GPU, retrieval service, model server, or benchmark was started.
+The uncommitted LoRA support in `scripts/remote/serve_vllm.sh` (section 35) must be pushed together with these changes before cloning on the model GPU.
+Next safe action: bring up the retrieval GPU per the handoff document, serve `Qwen/Qwen3.5-9B` with `ADAPTER_REPO=CrowtherLabs/Atom-Electron-1.3-9B` and `MODEL_NAME=Atom-Electron-1.3-9B`, pass the full smoke gate, run a small canary under a fresh `RUN_NAME`, then the 830-query run.
+Record which Kev model was used; Kev-4B is the default.

@@ -109,3 +109,33 @@ If the 5090 is dedicated to the model, set `BCP_RETRIEVAL_URL` and `BCP_TOKEN`
 to the retrieval box. The `bcp-replication/` bundle is a separate deployment
 with its own GPU/disk requirements and its own `AGENT.md`; do not start it on
 the model GPU unless VRAM and port capacity have been explicitly checked.
+
+### AgentIR-4B + Kev retrieval service
+
+The AgentIR-4B dense retriever with the Kev-4B relevance filter runs on its own
+GPU (about 32 GB; a 48 GB L40S/A6000 is enough, 24 GB is not).
+It embeds the agent's reasoning together with the query, so the runner sends the
+reasoning of each search turn with the request.
+Point the runner at it with:
+
+```dotenv
+BCP_RETRIEVAL_URL=http://<RETRIEVAL_PUBLIC_IP>:<VAST_TCP_PORT>
+BCP_TOKEN=<RETRIEVAL_OPEN_BUTTON_TOKEN>
+BCP_RETRIEVAL_API=agentir
+BCP_RETRIEVAL_REASONING_MAX_CHARS=12000
+RETRIEVAL_NOVELTY=off
+ENABLE_MULTI_QUERY_SEARCH=0
+ENABLE_DEEP_POOL_SEARCH=0
+ENABLE_BULK_GET_DOCUMENTS=0
+```
+
+Each search costs one Kev call per candidate (50 by default).
+Multi-query search multiplies that by the number of rewrites and deep-pool
+search asks Kev to score the whole pool, so keep both off unless that load is
+the experiment.
+The service has no batch document route; `get_documents` falls back to one
+request per document.
+The smoke gate fails when `kev_scored` is below `candidates`, because the service
+silently falls back to AgentIR order when Kev calls fail.
+Copy `logs/agentir_kev_searches.jsonl` off the retrieval box after the run; it
+holds all 50 candidates per search for the recall@50 versus recall@10 analysis.

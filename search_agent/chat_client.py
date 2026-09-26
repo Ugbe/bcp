@@ -542,16 +542,23 @@ class ChatSearchToolHandler(SearchToolHandler):
             return " || ".join(" ".join(str(item).lower().split()) for item in query)
         return " ".join(str(query).lower().split())
 
-    def _search(self, query: str | list[str]):
+    def _reasoning_kwargs(self, reasoning: str | None) -> dict:
+        """Forward the agent's reasoning only to searchers that use it."""
+        if reasoning and getattr(self.searcher, "accepts_reasoning", False):
+            return {"reasoning": reasoning}
+        return {}
+
+    def _search(self, query: str | list[str], reasoning: str | None = None):
+        extra = self._reasoning_kwargs(reasoning)
         if isinstance(query, list):
             if not self.multi_query_search:
                 raise ValueError("multi-query search is disabled for this run")
             if not hasattr(self.searcher, "search_multi_with_metadata"):
                 raise ValueError("the selected searcher does not support multi-query search")
-            response = self.searcher.search_multi_with_metadata(query, self.k)
+            response = self.searcher.search_multi_with_metadata(query, self.k, **extra)
             candidates = response.get("results", [])
         else:
-            candidates = self.searcher.search(query, self.k)
+            candidates = self.searcher.search(query, self.k, **extra)
         return self._format_candidates(candidates)
 
     def _format_candidates(self, candidates: list[dict]) -> str:
@@ -598,7 +605,7 @@ class ChatSearchToolHandler(SearchToolHandler):
             "returned_tokens": self.document_max_tokens if truncated else original_tokens,
         }
 
-    def execute_tool(self, tool_name: str, arguments: dict):
+    def execute_tool(self, tool_name: str, arguments: dict, reasoning: str | None = None):
         if tool_name == self.tool_name:
             query = (
                 arguments.get(self.tool_param)
@@ -613,7 +620,7 @@ class ChatSearchToolHandler(SearchToolHandler):
                 if not all(isinstance(item, str) for item in query):
                     raise ValueError("multi-query search values must be strings")
                 query = [str(item) for item in query]
-            return self._search(query)
+            return self._search(query, reasoning)
         elif tool_name == "deep_search":
             if not self.deep_pool_search:
                 raise ValueError("deep-pool search is disabled for this run")
@@ -622,7 +629,9 @@ class ChatSearchToolHandler(SearchToolHandler):
                 raise ValueError("Missing query parameter in deep_search arguments")
             if not hasattr(self.searcher, "search_pool"):
                 raise ValueError("the selected searcher does not support deep-pool search")
-            response = self.searcher.search_pool(query, self.deep_pool_k)
+            response = self.searcher.search_pool(
+                query, self.deep_pool_k, **self._reasoning_kwargs(reasoning)
+            )
             candidates = response.get("results", [])
             entries = []
             for rank, candidate in enumerate(candidates, start=1):
@@ -688,29 +697,32 @@ class ChatSearchToolHandler(SearchToolHandler):
         seen_anchor_count: int,
         remaining_tool_calls: int,
         low_novelty_streak: int,
+        reasoning: str | None = None,
     ) -> tuple[str, dict]:
         """Execute a novelty-aware search without storing per-qid state here."""
 
         metadata: dict = {}
+        extra = self._reasoning_kwargs(reasoning)
         if (
             isinstance(query, list)
             and self.multi_query_search
             and hasattr(self.searcher, "search_multi_with_metadata")
         ):
             response = self.searcher.search_multi_with_metadata(
-                query, self.k, exclude_docids=exclude_docids, seen_anchor_count=seen_anchor_count
+                query, self.k, exclude_docids=exclude_docids,
+                seen_anchor_count=seen_anchor_count, **extra,
             )
             candidates = response.get("results", [])
             metadata = dict(response.get("metadata") or {})
         elif novelty_mode == "server" and hasattr(self.searcher, "search_with_metadata"):
             response = self.searcher.search_with_metadata(
                 str(query), self.k, exclude_docids=exclude_docids,
-                seen_anchor_count=seen_anchor_count,
+                seen_anchor_count=seen_anchor_count, **extra,
             )
             candidates = response.get("results", [])
             metadata = dict(response.get("metadata") or {})
         else:
-            candidates = self.searcher.search(query, self.k)
+            candidates = self.searcher.search(query, self.k, **extra)
             if novelty_mode == "local":
                 original_count = len(candidates)
                 candidates = [
@@ -1476,6 +1488,8 @@ def run_conversation_with_tools(
         messages.append(msg)
         recovery_tool_required = False
         post_tool_guidance: list[dict] = []
+        # Reasoning-aware retrievers (AgentIR) embed the thoughts behind a call.
+        turn_reasoning = msg.get("reasoning") or msg.get("reasoning_content")
 
         for tool_call in tool_calls:
             call_id = tool_call["id"]
@@ -1578,6 +1592,7 @@ def run_conversation_with_tools(
                             seen_anchor_count=retrieval_seen_anchor_count,
                             remaining_tool_calls=max_tool_calls - state.productive_tool_calls - 1,
                             low_novelty_streak=state.low_novelty_streak,
+                            reasoning=turn_reasoning,
                         )
                         state.retrieval_exclusions_applied = (
                             state.retrieval_exclusions_applied
@@ -1588,7 +1603,11 @@ def run_conversation_with_tools(
                             or bool(retrieval_metadata.get("fallback_applied"))
                         )
                     else:
-                        result = tool_handler.execute_tool(name, arguments)
+                        result = (
+                            tool_handler.execute_tool(name, arguments, reasoning=turn_reasoning)
+                            if isinstance(tool_handler, ChatSearchToolHandler)
+                            else tool_handler.execute_tool(name, arguments)
+                        )
 
                     state.productive_tool_calls += 1
                     state.consecutive_rejected_duplicate_calls = 0
