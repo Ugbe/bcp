@@ -1580,3 +1580,16 @@ No GPU, retrieval service, model server, or benchmark was started.
 The uncommitted LoRA support in `scripts/remote/serve_vllm.sh` (section 35) must be pushed together with these changes before cloning on the model GPU.
 Next safe action: bring up the retrieval GPU per the handoff document, serve `Qwen/Qwen3.5-9B` with `ADAPTER_REPO=CrowtherLabs/Atom-Electron-1.3-9B` and `MODEL_NAME=Atom-Electron-1.3-9B`, pass the full smoke gate, run a small canary under a fresh `RUN_NAME`, then the 830-query run.
 Record which Kev model was used; Kev-4B is the default.
+
+## 38. tmux session names with dots - 2026-09-26
+
+`stop_stack.sh` reported `No tmux session found: bcp-atom-electron-1.3-9b-agentir-kev4b` for the AgentIR run.
+tmux does not allow `.` or `:` in session names and turns them into `_`, so `start_stack.sh` created `bcp-atom-electron-1_3-9b-agentir-kev4b` while both scripts and the runbook looked up the dotted name.
+A dotted `-t` target is also parsed as session.window, so the lookup could never match.
+Both scripts now apply the same substitution and match the session exactly with `-t "=<name>"`, so a prefix such as a canary name cannot hit another run's session.
+The runbook's attach and select commands use `bcp-${RUN_NAME//./_}`.
+`bash -n` passes for both scripts; tmux itself was not available locally to exercise them.
+
+While diagnosing, the user edited `RUN_NAME` in the GPU `.env` to guess the session name.
+`RUN_NAME` must stay `atom-electron-1.3-9b-agentir-kev4b`; any other value makes the next start write to a new, empty run directory instead of resuming.
+The user's local `.env.example` also held live retrieval, Azure, and Hugging Face credentials in a tracked file; it was not committed, and the user was told to move them to `.env` and restore the template.

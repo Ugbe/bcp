@@ -49,12 +49,12 @@ It exits nonzero on failure. For a live run with dashboard and judging:
 
 ```bash
 bash scripts/remote/start_stack.sh
-tmux attach -t "bcp-${RUN_NAME}"
+tmux attach -t "bcp-${RUN_NAME//./_}"
 ```
 
 The stack opens four tmux windows: dashboard, evaluator, benchmark, and stats.
 The evaluator window prints only judged counts while it runs.
-Live accuracy and recall are in the `stats` window; switch to it with Ctrl+B then W, or `tmux select-window -t "bcp-${RUN_NAME}:stats"`.
+Live accuracy and recall are in the `stats` window; switch to it with Ctrl+B then W, or `tmux select-window -t "bcp-${RUN_NAME//./_}:stats"`.
 It refreshes every `MONITOR_INTERVAL` seconds (default 30) and shows run and judge progress, accuracy over judged, completed-only, and full-target denominators, judged and live evidence recall, tool calls per run, throughput, ETA, and the latest judged qids.
 It warns when no run record has appeared for 15 minutes or when a run has waited that long for the judge, which usually means the benchmark or evaluator window has died.
 
@@ -63,7 +63,7 @@ To watch a run without the stack, or after reattaching to an older session that 
 ```bash
 bash scripts/remote/monitor.sh                       # uses RUN_NAME from .env
 RUN_NAME=my-run bash scripts/remote/monitor.sh --once # single snapshot
-tmux new-window -t "bcp-${RUN_NAME}" -n stats "bash scripts/remote/monitor.sh; exec bash"
+tmux new-window -t "bcp-${RUN_NAME//./_}" -n stats "bash scripts/remote/monitor.sh; exec bash"
 ```
 
 The monitor reads run and eval files directly and needs only the Python standard library, so it works before `bootstrap.sh` has created `.venv`.

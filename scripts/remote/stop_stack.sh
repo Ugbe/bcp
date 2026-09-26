@@ -7,8 +7,10 @@ source "${SCRIPT_DIR}/lib.sh"
 
 require_command tmux
 session="${TMUX_SESSION:-bcp-${run_name}}"
-if tmux has-session -t "${session}" 2>/dev/null; then
-  tmux kill-session -t "${session}"
+# tmux turns "." and ":" in session names into "_"; match what it creates.
+session="${session//[.:]/_}"
+if tmux has-session -t "=${session}" 2>/dev/null; then
+  tmux kill-session -t "=${session}"
   echo "Stopped tmux session ${session}. Run files were preserved."
 else
   echo "No tmux session found: ${session}"

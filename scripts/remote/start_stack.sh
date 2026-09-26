@@ -19,8 +19,10 @@ require_configured_env AZURE_OPENAI_API_VERSION
 
 mkdir -p "${run_dir}" "${eval_dir}" runs
 session="${TMUX_SESSION:-bcp-${run_name}}"
+# tmux turns "." and ":" in session names into "_"; match what it creates.
+session="${session//[.:]/_}"
 
-if tmux has-session -t "${session}" 2>/dev/null; then
+if tmux has-session -t "=${session}" 2>/dev/null; then
   echo "tmux session already exists: ${session}"
   echo "Attach with: tmux attach -t ${session}"
   exit 0
