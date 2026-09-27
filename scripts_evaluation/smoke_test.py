@@ -165,18 +165,35 @@ if kev_url:
     print("1b. Kev reranker:", kev_url)
     try:
         sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+        import requests
         from searcher.searchers.kev_reranker import KevReranker
 
-        if retrieval_api == "agentir":
+        if os.environ.get("BCP_RETRIEVAL_API", "legacy").strip().lower() == "agentir":
             raise RuntimeError("the agentir service already reranks with Kev; unset BCP_KEV_URL")
+        kev_headers = {}
+        if os.environ.get("BCP_KEV_TOKEN"):
+            kev_headers["Authorization"] = f"Bearer {os.environ['BCP_KEV_TOKEN']}"
+        # Fail fast on an unreachable Kev instead of waiting out per-document retries.
+        probe = requests.get(f"{kev_url.rstrip('/')}/v1/models", headers=kev_headers, timeout=15)
+        probe.raise_for_status()
+
         search_k = int(os.environ.get("SEARCH_K", "5"))
-        sample = [
-            {
-                "docid": str(h["docid"]),
-                "text": h.get("text") or h.get("snippet") or (h.get("document") or {}).get("text", ""),
-            }
-            for h in hits[:search_k]
-        ]
+        retrieved = globals().get("hits") or []
+        if retrieved:
+            sample = [
+                {
+                    "docid": str(h["docid"]),
+                    "text": h.get("text") or h.get("snippet") or (h.get("document") or {}).get("text", ""),
+                }
+                for h in retrieved[:search_k]
+            ]
+        else:
+            # Retrieval failed above; still check Kev on its own with fixed passages.
+            print("   retrieval gave no hits, so Kev is checked on built-in sample passages")
+            sample = [
+                {"docid": "sample-bell", "text": "Alexander Graham Bell was awarded the first US patent for the telephone in 1876."},
+                {"docid": "sample-kiwi", "text": "The kiwi is a flightless bird endemic to New Zealand."},
+            ]
         reranker = KevReranker(
             kev_url,
             token=os.environ.get("BCP_KEV_TOKEN") or None,
