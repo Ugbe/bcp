@@ -13,8 +13,11 @@ SESSION="${NEUTRON_TMUX_SESSION:-neutron}"
 LOG="${NEUTRON_LOG:-/workspace/neutron-server.log}"
 export HF_HOME="${HF_HOME:-/workspace/huggingface}"
 # setup.sh downloaded everything; offline mode loads the private adapter from the
-# cache without a token and keeps startup independent of the Hub.
-export HF_HUB_OFFLINE="${HF_HUB_OFFLINE:-1}"
+# cache without a token and keeps startup independent of the Hub. It is set on the
+# server command only: an exported value would become the tmux server's environment
+# when this creates the first session, and every later session (e.g. Kev, which
+# must download its models) would inherit offline mode.
+OFFLINE="${HF_HUB_OFFLINE:-1}"
 
 if curl -fsS "http://127.0.0.1:${PORT}/health" >/dev/null 2>&1; then
   echo "Something already answers on port ${PORT}; refusing to start a second server." >&2
@@ -26,7 +29,7 @@ if tmux has-session -t "=${SESSION}" 2>/dev/null; then
 fi
 
 tmux new-session -d -s "${SESSION}" \
-  "'${VENV}/bin/python' '${HERE}/neutron_server.py' --index-dir '${INDEX_DIR}' --host '${HOST}' --port '${PORT}' 2>&1 | tee '${LOG}'"
+  "HF_HUB_OFFLINE='${OFFLINE}' HF_HOME='${HF_HOME}' '${VENV}/bin/python' '${HERE}/neutron_server.py' --index-dir '${INDEX_DIR}' --host '${HOST}' --port '${PORT}' 2>&1 | tee '${LOG}'"
 echo "Started tmux session ${SESSION}; log ${LOG}"
 
 # Corpus, index, and model load take about a minute (longer on the first start).

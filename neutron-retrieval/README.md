@@ -71,7 +71,7 @@ Top-5 per search therefore does not guarantee that the model sees every evidence
 Install and start Kev as in the AgentIR retrieval handoff (Kev repo at commit `2855ba2a55a80579176a459f78b95d03548cabb5`, `uv sync --extra serve`, plus `flash-linear-attention`), then:
 
 ```bash
-tmux new -d -s kev "cd /workspace/kev && HF_HOME=/workspace/huggingface .venv/bin/python -m kev.serve --run jaredpalmer/kev-4b --port 8009"
+tmux new -d -s kev "cd /workspace/kev && HF_HUB_OFFLINE=0 HF_HOME=/workspace/huggingface .venv/bin/python -m kev.serve --run jaredpalmer/kev-4b --port 8009 2>&1 | tee /workspace/kev.log; exec bash"
 until curl -sf localhost:8009/v1/models >/dev/null; do sleep 5; done
 ```
 

@@ -1665,3 +1665,7 @@ recall gate: stopped by the user at 544/830 queries, so no local recall number; 
 
 The first offline start failed with `Couldn't reach 'Tevatron/browsecomp-plus-corpus' on the Hub (OfflineModeIsEnabled)`, which led to the parquet loader.
 Next safe action: on a Vast GPU, run `setup.sh`, `run_server.sh`, and the recall gate (`--min-evidence 0.80 --min-gold 0.94`); start Kev on the same GPU; expose both through the portal; then the runner smoke test with `BCP_RETRIEVAL_API=dense`, `BCP_RETRIEVAL_MODEL=browsecomp-overfit`, `BCP_KEV_URL`, and `SEARCH_K=5`.
+
+On the Vast box the recall gate passed: evidence recall@5 0.8105 (ceiling 0.8128) and gold recall@5 0.9499 (ceiling 0.9683) over 830 queries, matching the checkpoint.
+Kev then failed to start with `LocalEntryNotFoundError ... outgoing traffic has been disabled`: `run_server.sh` had exported `HF_HUB_OFFLINE=1` before creating the first tmux session, so the tmux server kept it and the later `kev` session inherited offline mode while Kev still had to download `Qwen/Qwen3.5-4B-Base` and `jaredpalmer/kev-4b`.
+`run_server.sh` now sets offline mode on the server command only, and the README's Kev command sets `HF_HUB_OFFLINE=0`, logs to `/workspace/kev.log`, and keeps its tmux session open after a crash.
