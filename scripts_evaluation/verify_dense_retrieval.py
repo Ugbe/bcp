@@ -8,7 +8,7 @@ query as 0, which matches pyserini's `trec_eval -c`.
 
 Reference for the Atom Neutron 0.6B service (neutron-retrieval/README.md), k=5:
 
-  browsecomp-overfit         evidence 0.8105 (ceiling 0.8128), gold 0.9497 (ceiling 0.9683)
+  neutron                    evidence 0.8105 (ceiling 0.8128), gold 0.9497 (ceiling 0.9683)
   Qwen/Qwen3-Embedding-0.6B  evidence ~0.065
 
 The overfit encoder was trained on these exact queries, so this checks that the service

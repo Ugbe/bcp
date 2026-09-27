@@ -93,9 +93,18 @@ class ApiTests(unittest.TestCase):
         )
         self.assertEqual(r.json()["results"], [{"docid": "d0", "score": 1.0}])
 
+    def test_neutron_name_and_old_alias_select_the_adapter(self):
+        for name in ("neutron", "browsecomp-overfit"):
+            r = self.client.post("/search", json={"query": "q", "k": 1, "model": name}, headers=self.auth)
+            self.assertEqual(r.status_code, 200)
+            self.assertEqual(r.json()["model"], "neutron")
+            self.assertEqual(r.json()["results"][0]["docid"], "d1")
+        self.assertEqual(fake_encode.calls[-1], ("q", "neutron"))
+
     def test_unknown_model_and_empty_query_are_400(self):
         r = self.client.post("/search", json={"query": "q", "model": "nope"}, headers=self.auth)
         self.assertEqual(r.status_code, 400)
+        self.assertIn("neutron", r.json()["detail"])
         self.assertIn("browsecomp-overfit", r.json()["detail"])
         r = self.client.post("/search", json={"query": "  "}, headers=self.auth)
         self.assertEqual(r.status_code, 400)

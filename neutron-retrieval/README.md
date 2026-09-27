@@ -4,7 +4,7 @@ The "perfect retriever" for BrowseComp-Plus upper-baseline runs.
 It serves the dense API that the runner uses with `BCP_RETRIEVAL_API=dense`: `POST /search`, `GET /document/{docid}`, `POST /documents`, `GET /health`, `GET /info`.
 
 **It is an oracle.**
-The `browsecomp-overfit` encoder is `Qwen/Qwen3-Embedding-0.6B` plus the LoRA `CrowtherLabs/Atom-Neutron-emb-0.6b`, trained on all 830 benchmark queries and their qrels.
+The `neutron` encoder (also accepted under its earlier name `browsecomp-overfit`) is `Qwen/Qwen3-Embedding-0.6B` plus the LoRA `CrowtherLabs/Atom-Neutron-emb-0.6b`, trained on all 830 benchmark queries and their qrels.
 Every score it produces is an upper bound and must never be reported as held-out BrowseComp performance.
 The same service also serves the unmodified base encoder (`model: "Qwen/Qwen3-Embedding-0.6B"`) as a non-oracle control.
 
@@ -48,7 +48,7 @@ Generate the benchmark queries once (`bash scripts/remote/bootstrap.sh` does it)
 
 ```bash
 .venv/bin/python scripts_evaluation/verify_dense_retrieval.py --url http://127.0.0.1:18200 \
-  --model browsecomp-overfit --k 5 --min-evidence 0.80 --min-gold 0.94
+  --model neutron --k 5 --min-evidence 0.80 --min-gold 0.94
 ```
 
 Expected with k=5: evidence recall 0.8105 (ceiling 0.8128) and gold recall 0.9497 (ceiling 0.9683).
@@ -99,7 +99,7 @@ Check that an unauthenticated request returns 401 before handing out the URLs.
 BCP_RETRIEVAL_URL=http://<ip>:<retrieval port>
 BCP_TOKEN=<OPEN_BUTTON_TOKEN>
 BCP_RETRIEVAL_API=dense
-BCP_RETRIEVAL_MODEL=browsecomp-overfit
+BCP_RETRIEVAL_MODEL=neutron
 BCP_KEV_URL=http://<ip>:<kev port>
 BCP_KEV_TOKEN=<OPEN_BUTTON_TOKEN>
 SEARCH_K=5

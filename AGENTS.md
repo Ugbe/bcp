@@ -1669,3 +1669,22 @@ Next safe action: on a Vast GPU, run `setup.sh`, `run_server.sh`, and the recall
 On the Vast box the recall gate passed: evidence recall@5 0.8105 (ceiling 0.8128) and gold recall@5 0.9499 (ceiling 0.9683) over 830 queries, matching the checkpoint.
 Kev then failed to start with `LocalEntryNotFoundError ... outgoing traffic has been disabled`: `run_server.sh` had exported `HF_HUB_OFFLINE=1` before creating the first tmux session, so the tmux server kept it and the later `kev` session inherited offline mode while Kev still had to download `Qwen/Qwen3.5-4B-Base` and `jaredpalmer/kev-4b`.
 `run_server.sh` now sets offline mode on the server command only, and the README's Kev command sets `HF_HUB_OFFLINE=0`, logs to `/workspace/kev.log`, and keeps its tmux session open after a crash.
+
+## 41. Running two experiments from one model GPU - 2026-09-27
+
+The user typed the perfect-retriever settings as bare `NAME=value` lines in the shell before `smoke_test.sh`; unexported shell variables do not reach child processes, so the smoke test read `.env` and tested the AgentIR configuration.
+The AgentIR run (`atom-electron-1.3-9b-agentir-kev4b`) was stopped with `stop_stack.sh` at 522 records and is to be resumed unchanged from `/workspace/bcp`.
+
+Do not run a second experiment from the same checkout with command-line overrides.
+When a tmux server is already running, `start_stack.sh` windows start from the tmux server's environment, not the caller's, so their scripts read `.env` and could write the second run into the first run's directory.
+Use a second checkout (`/workspace/bcp-perfect`) with its own `.env` (a copy of the first, changing only retrieval settings, `RUN_NAME`, and `DASHBOARD_PORT=7861`), its own `.venv`, and a copied `topics-qrels/queries.tsv`.
+Both runs share the one vLLM server, which serves two sequences at a time (`VLLM_MAX_NUM_SEQS=2`), so each proceeds at roughly half speed; results are unaffected.
+
+The retrieval box's `OPEN_BUTTON_TOKEN` was pasted into chat; recreate that instance after the experiment rather than keeping it up with that token.
+
+## 42. Neutron encoder renamed - 2026-09-27
+
+At the user's request the adapter encoder served by `neutron-retrieval/neutron_server.py` is now named `neutron`; `browsecomp-overfit` stays accepted as an alias, and `/search` reports the canonical name.
+Runner setting: `BCP_RETRIEVAL_MODEL=neutron`.
+The running retrieval box needs `git pull` and a restart of the `neutron` tmux session before it accepts the new name; until then it rejects `neutron` with HTTP 400.
+Verification: `tests/test_neutron_server.py` covers both names selecting the adapter and the 400 message listing names and aliases; unittest discovery 159 passed.

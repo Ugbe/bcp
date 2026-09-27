@@ -11,7 +11,8 @@ with BCP_RETRIEVAL_API=dense):
 
 Two query encoders share one base model and one document index:
 
-  browsecomp-overfit          Qwen/Qwen3-Embedding-0.6B + CrowtherLabs/Atom-Neutron-emb-0.6b.
+  neutron                     Qwen/Qwen3-Embedding-0.6B + CrowtherLabs/Atom-Neutron-emb-0.6b.
+                              "browsecomp-overfit" is accepted as an alias.
                               The adapter was trained on all 830 benchmark queries and their
                               qrels, so it is an oracle: an upper bound, never a held-out score.
   Qwen/Qwen3-Embedding-0.6B   The unmodified base model, a non-oracle control.
@@ -48,7 +49,9 @@ QUERY_PREFIX = (
 )
 BASE_MODEL = "Qwen/Qwen3-Embedding-0.6B"
 ADAPTER_REPO = "CrowtherLabs/Atom-Neutron-emb-0.6b"
-OVERFIT_NAME = "browsecomp-overfit"
+OVERFIT_NAME = "neutron"
+# Earlier name of the same encoder; still accepted so existing configs keep working.
+ENCODER_ALIASES = {"browsecomp-overfit": OVERFIT_NAME}
 INDEX_REPO = "Tevatron/browsecomp-plus-indexes"
 INDEX_SUBDIR = "qwen3-embedding-0.6b"
 CORPUS_REPO = "Tevatron/browsecomp-plus-corpus"
@@ -93,10 +96,16 @@ class Retriever:
         self.encoders = list(encoders)
         self.default_encoder = default_encoder
 
-    def search(self, query: str, k: int, encoder: Optional[str]) -> List[Dict[str, object]]:
+    def resolve(self, encoder: Optional[str]) -> str:
+        """Canonical served encoder name for a request's model field."""
         name = encoder or self.default_encoder
+        name = ENCODER_ALIASES.get(name, name)
         if name not in self.encoders:
             raise KeyError(name)
+        return name
+
+    def search(self, query: str, k: int, encoder: Optional[str]) -> List[Dict[str, object]]:
+        name = self.resolve(encoder)
         k = max(1, min(int(k), MAX_K, len(self.lookup)))
         q = np.asarray(self.encode(query, name), dtype=np.float32)
         scores = self.reps @ q
@@ -128,6 +137,7 @@ def build_app(retriever: Retriever, api_token: Optional[str] = None) -> FastAPI:
     def info():
         return {
             "encoders": retriever.encoders,
+            "aliases": ENCODER_ALIASES,
             "default_encoder": retriever.default_encoder,
             "docs": len(retriever.lookup),
             "dim": int(retriever.reps.shape[1]),
@@ -143,21 +153,24 @@ def build_app(retriever: Retriever, api_token: Optional[str] = None) -> FastAPI:
             raise HTTPException(400, "query must not be empty")
         started = time.perf_counter()
         try:
-            hits = retriever.search(req.query, req.k, req.model)
+            model = retriever.resolve(req.model)
         except KeyError:
             raise HTTPException(
-                400, f"unknown model {req.model!r}; served: {retriever.encoders}"
+                400,
+                f"unknown model {req.model!r}; served: {retriever.encoders}, "
+                f"aliases: {sorted(ENCODER_ALIASES)}",
             )
+        hits = retriever.search(req.query, req.k, model)
         if req.include_text:
             for hit in hits:
                 hit["text"] = retriever.docs.get(hit["docid"], "")
         logger.info(
             "search model=%s k=%d %.0fms",
-            req.model or retriever.default_encoder,
+            model,
             len(hits),
             (time.perf_counter() - started) * 1000,
         )
-        return {"model": req.model or retriever.default_encoder, "k": len(hits), "results": hits}
+        return {"model": model, "k": len(hits), "results": hits}
 
     @app.get("/document/{docid}", dependencies=[Depends(require_token)])
     def document(docid: str):
