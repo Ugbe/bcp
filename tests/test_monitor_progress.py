@@ -165,7 +165,10 @@ class MonitorProgressTests(unittest.TestCase):
         stdout = io.StringIO()
         with contextlib.redirect_stdout(stdout):
             code = monitor.main(
-                ["--runs-dir", str(self.runs), "--evals-dir", str(self.evals), "--target", "5", "--once", "--json"]
+                # Name the run explicitly: the default reads RUN_NAME from the
+                # developer's real environment and .env.
+                ["--run-name", "demo", "--runs-dir", str(self.runs), "--evals-dir", str(self.evals),
+                 "--target", "5", "--once", "--json"]
             )
         self.assertEqual(code, 0)
         data = json.loads(stdout.getvalue())

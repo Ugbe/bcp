@@ -1,0 +1,9 @@
+# torch is installed separately by setup.sh from the CUDA 12.8 index (Blackwell needs sm_120).
+# Tested: transformers 5.17.0, peft 0.21.0, datasets 5.0.1, fastapi 0.141.1, numpy 2.x.
+transformers>=4.51
+peft>=0.14
+datasets
+fastapi
+uvicorn
+numpy
+huggingface_hub

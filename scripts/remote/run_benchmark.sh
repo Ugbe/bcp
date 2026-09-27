@@ -72,6 +72,13 @@ if bool_env "${ENABLE_BULK_GET_DOCUMENTS:-0}"; then
   args+=(--bulk-get-documents --bulk-get-documents-max-docs "${BULK_GET_DOCUMENTS_MAX_DOCS:-10}")
 fi
 
+if [[ -n "${BCP_KEV_URL:-}" ]]; then
+  # One JSON line per search with the retriever's and Kev's order, kept beside
+  # (not inside) the run directory so the evaluator never mistakes it for a run.
+  export BCP_KEV_LOG_PATH="${BCP_KEV_LOG_PATH:-${REPO_ROOT}/runs/${run_name}.kev.jsonl}"
+  echo "Kev reranking every search via ${BCP_KEV_URL}; per-search log ${BCP_KEV_LOG_PATH}"
+fi
+
 mkdir -p "${run_dir}"
 echo "Starting benchmark in ${run_dir}; completed qids are skipped on resume."
 run_python "${args[@]}"

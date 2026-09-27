@@ -22,6 +22,7 @@ from .base import (
     normalize_novelty_request,
     select_novelty_results,
 )
+from .kev_reranker import KevReranker
 
 logger = logging.getLogger(__name__)
 
@@ -77,6 +78,39 @@ class RemoteApiSearcher(BaseSearcher):
             ),
         )
         parser.add_argument(
+            "--kev-url",
+            default=os.environ.get("BCP_KEV_URL") or None,
+            help=(
+                "Kev server base URL. When set, every search's hits are reordered "
+                "by Kev's P(relevant) before the model sees them. Defaults to "
+                "$BCP_KEV_URL; unset disables Kev."
+            ),
+        )
+        parser.add_argument(
+            "--kev-token",
+            default=os.environ.get("BCP_KEV_TOKEN") or None,
+            help="Bearer token for the Kev server. Defaults to $BCP_KEV_TOKEN.",
+        )
+        parser.add_argument(
+            "--kev-doc-chars",
+            type=int,
+            default=int(os.environ.get("BCP_KEV_DOC_CHARS", "4096")),
+            help="Leading characters of each document Kev judges (default 4096, "
+            "about the 1024 tokens the AgentIR+Kev service sends).",
+        )
+        parser.add_argument(
+            "--kev-timeout",
+            type=float,
+            default=float(os.environ.get("BCP_KEV_TIMEOUT", "120")),
+            help="Per-document Kev request timeout in seconds (default 120).",
+        )
+        parser.add_argument(
+            "--kev-log-path",
+            default=os.environ.get("BCP_KEV_LOG_PATH") or None,
+            help="Append one JSON line per search with retriever and Kev order. "
+            "Defaults to $BCP_KEV_LOG_PATH.",
+        )
+        parser.add_argument(
             "--retrieval-timeout",
             type=float,
             default=60.0,
@@ -111,6 +145,21 @@ class RemoteApiSearcher(BaseSearcher):
         self.session = requests.Session()
         if args.retrieval_token:
             self.session.headers["Authorization"] = f"Bearer {args.retrieval_token}"
+
+        self.kev: Optional[KevReranker] = None
+        kev_url = getattr(args, "kev_url", None)
+        if kev_url:
+            if self.api == "agentir":
+                raise ValueError(
+                    "the agentir service already reranks with Kev; unset BCP_KEV_URL"
+                )
+            self.kev = KevReranker(
+                kev_url,
+                token=getattr(args, "kev_token", None),
+                timeout=getattr(args, "kev_timeout", 120.0),
+                doc_chars=getattr(args, "kev_doc_chars", 4096),
+                log_path=getattr(args, "kev_log_path", None),
+            )
 
     def _request(self, method: str, path: str, **kwargs) -> requests.Response:
         last_error: Optional[Exception] = None
@@ -261,7 +310,7 @@ class RemoteApiSearcher(BaseSearcher):
         result_lists = []
         metadata = []
         for query in normalized:
-            response = self.search_with_metadata(
+            response = self._retrieve_with_metadata(
                 query,
                 max(k, 10),
                 exclude_docids=exclude_docids,
@@ -273,9 +322,14 @@ class RemoteApiSearcher(BaseSearcher):
 
         excluded = {str(item) for item in (exclude_docids or [])}
         fused = [item for item in self.reciprocal_rank_fusion(result_lists, k=max(k, 10)) if str(item.get("docid")) not in excluded]
+        kev_metadata: Dict[str, Any] = {}
+        if self.kev:
+            # Rerank the fused selection once, not each rewrite's list.
+            fused[:k], kev_metadata = self.kev.rerank(" || ".join(normalized), fused[:k])
         return {
             "results": fused[:k],
             "metadata": {
+                **kev_metadata,
                 "multi_query": True,
                 "queries": normalized,
                 "query_count": len(normalized),
@@ -330,9 +384,41 @@ class RemoteApiSearcher(BaseSearcher):
     ) -> List[Dict[str, Any]]:
         response = self._search_request(query, k, reasoning)
         response.raise_for_status()
-        return self._normalize_hits(response.json())[:k]
+        hits = self._normalize_hits(response.json())[:k]
+        if self.kev:
+            hits, _ = self.kev.rerank(query, hits)
+        return hits
 
     def search_with_metadata(
+        self,
+        query: str,
+        k: int = 10,
+        *,
+        exclude_docids: Optional[Iterable[str]] = None,
+        seen_anchor_count: int = 0,
+        reasoning: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Novelty-aware search, reordered by Kev when it is configured.
+
+        Kev runs on the final selection, so it only reorders the documents the
+        retriever and the novelty policy chose.
+        """
+        response = self._retrieve_with_metadata(
+            query,
+            k,
+            exclude_docids=exclude_docids,
+            seen_anchor_count=seen_anchor_count,
+            reasoning=reasoning,
+        )
+        if self.kev:
+            results, kev_metadata = self.kev.rerank(query, response["results"])
+            response = {
+                "results": results,
+                "metadata": {**response["metadata"], **kev_metadata},
+            }
+        return response
+
+    def _retrieve_with_metadata(
         self,
         query: str,
         k: int = 10,

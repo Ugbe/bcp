@@ -1593,3 +1593,75 @@ The runbook's attach and select commands use `bcp-${RUN_NAME//./_}`.
 While diagnosing, the user edited `RUN_NAME` in the GPU `.env` to guess the session name.
 `RUN_NAME` must stay `atom-electron-1.3-9b-agentir-kev4b`; any other value makes the next start write to a new, empty run directory instead of resuming.
 The user's local `.env.example` also held live retrieval, Azure, and Hugging Face credentials in a tracked file; it was not committed, and the user was told to move them to `.env` and restore the template.
+
+## 39. Client-side Kev reranking and the perfect-retriever top-5 upper baseline - 2026-09-27
+
+Goal: an upper-baseline run of Atom Electron 1.3 9B with the perfect retriever (dense API, `browsecomp-overfit` encoder, trained on the 830 test questions and qrels, so oracle-only and never a held-out score) capped at exactly 5 documents per search.
+In-house policy is now "retriever + Kev reranker" for every retriever, so Kev must rerank those 5 even though it can only reorder them.
+
+We do not own the perfect retriever's server, so Kev runs in the runner:
+
+- `searcher/searchers/kev_reranker.py`: `KevReranker` posts one `/v1/systemone` `noul` question per hit with the AgentIR service's exact question and a 4096-character document prefix, in parallel, with two attempts per document.
+  Hits are sorted by P(yes), ties by retriever rank; a document Kev fails to score keeps its retriever score behind every scored one.
+  `score` becomes Kev's probability, as the AgentIR service reports it; `retriever_score`, `retriever_rank`, and `kev_prob` stay on the hit but are not shown to the model.
+  An optional JSONL log records the retriever order, Kev probabilities, the returned order, `kev_scored`, and latency per search.
+- `searcher/searchers/remote_api_searcher.py`: `--kev-url/--kev-token/--kev-doc-chars/--kev-timeout/--kev-log-path` (env `BCP_KEV_*`).
+  Kev runs after retrieval and novelty selection in `search` and `search_with_metadata`, and once on the fused result of multi-query search.
+  Kev with `BCP_RETRIEVAL_API=agentir` is refused, since that service already reranks with Kev.
+- `search_agent/chat_client.py`: refuses `--deep-pool-search` with Kev (its 100-document preview pool is not reranked), and strips `kev_*` keys from the novelty `retrieval_state` shown to the model; the leak was caught by a test.
+- `scripts/remote/run_benchmark.sh`: with `BCP_KEV_URL` set, logs to `runs/<RUN_NAME>.kev.jsonl` by default.
+- `scripts_evaluation/smoke_test.py`: section 1b fails unless Kev scores every document of a `SEARCH_K` sample.
+- `tests/test_monitor_progress.py`: the CLI snapshot test now passes `--run-name`; it had read `RUN_NAME` from the developer's `.env` and failed once one was set.
+
+Verification:
+
+```text
+tests/test_kev_reranker.py: 12 tests (ordering, ties, failures, request contract, log, exact k, novelty before Kev,
+  multi-query once, agentir refusal, model-visible tool payload in plain and novelty mode)
+  the novelty leak test fails without the chat_client filter
+unittest discovery: 144 passed
+smoke_test.py against local fake dense retriever + fake Kev over HTTP with bearer auth:
+  healthy Kev: 5/5 scored, order reversed as scored -> OK; Kev failing every second call: 4/5 -> FAIL
+chat_client.py CLI end to end (fake model, fake dense retriever, fake Kev, --k 5, novelty off):
+  model received exactly 5 hits in Kev order with Kev scores; Kev log correct; record completed with 5 retrieved docids
+  --deep-pool-search with BCP_KEV_URL: refused
+```
+
+No GPU, Kev server, retrieval service, or benchmark was started.
+Next safe action: obtain the current perfect-retriever URL and token and a Kev endpoint (Kev-4B needs its own ~22 GB GPU), set `BCP_RETRIEVAL_API=dense`, `BCP_RETRIEVAL_MODEL=browsecomp-overfit`, `SEARCH_K=5`, `RETRIEVAL_NOVELTY=off`, multi-query, deep-pool, notes, and fresh final off, under a fresh `RUN_NAME`; pass the smoke gate; run a 20-question canary before the full run.
+Per-search top-5 does not guarantee the gold documents reach the model; measure it from `retrieved_docids` and the Kev log rather than assuming it.
+
+## 40. Atom Neutron dense retrieval service (perfect retriever) - 2026-09-27
+
+The perfect retriever was not being served anywhere, and its original server code was never in this repository.
+The checkpoint is `CrowtherLabs/Atom-Neutron-emb-0.6b`: a query-side LoRA (r=64, alpha=128) on `Qwen/Qwen3-Embedding-0.6B`, trained on all 830 benchmark queries and qrels with the document tower frozen.
+Because the documents were never re-encoded, the official `Tevatron/browsecomp-plus-indexes` `qwen3-embedding-0.6b` index (4 shards, 100,195 x 1024) is its index; no corpus encoding is needed.
+`CrowtherLabs/atom-neutron-embedding-1.0` is a different, 8B model and is not this retriever.
+The adapter's model card reports, at k=5 on the verbatim queries, evidence recall 0.8105 (ceiling 0.8128) and gold recall 0.9497 (ceiling 0.9683); on real agent sub-queries about 0.87 union evidence recall, and 0.59 set recall in a 20-question agent run.
+
+New in `neutron-retrieval/`:
+
+- `neutron_server.py`: FastAPI service implementing the runner's dense contract (`/search`, `/document/{docid}`, `/documents`, `/health`, `/info`), optional bearer token (`NEUTRON_API_TOKEN`).
+  It serves `browsecomp-overfit` (adapter, default) and `Qwen/Qwen3-Embedding-0.6B` (the same weights with the adapter disabled) as a non-oracle control.
+  Encoding follows the checkpoint exactly: prefix with no separator, tokenizer special tokens only, left padding, last-token pooling, L2 normalization, 512 tokens, one query per request.
+  Search is an exact inner product over the index held in CPU memory; ties at the cut are filled by index position so results are deterministic.
+  The corpus is read from the downloaded parquet files, because `datasets.load_dataset` cannot open a `snapshot_download`ed repo offline.
+- `setup.sh`: CUDA 12.8 torch with an sm-arch and bf16 check, requirements, and the four downloads (base, private adapter, index, corpus).
+- `run_server.sh`: tmux session `neutron` on `127.0.0.1:18200`, offline mode so the private adapter loads from cache without a token, readiness wait, refuses a second start.
+- `README.md`: GPU sizing (RTX 5090 recommended to co-host Kev-4B), verification, encoding rules, Kev on the same box, Vast portal exposure, runner settings.
+
+`scripts_evaluation/verify_dense_retrieval.py` is an HTTP recall gate: all 830 questions through `/search`, evidence and gold recall@k next to their ceilings, averaged over every qrels qid with failures counted as 0, optional thresholds.
+
+Verification:
+
+```text
+tests/test_neutron_server.py: 14 tests (exact top-k, encoder choice, deterministic ties, clamping,
+  API contract, auth, shard merge, unnormalized index rejected, runner dense client against the app)
+unittest discovery: 158 passed
+real service on local CPU with HF_HUB_OFFLINE=1: index 100195 x 1024 from 4 shards, corpus 100195 docs,
+  private adapter loaded from cache without a token, /info correct
+recall gate: stopped by the user at 544/830 queries, so no local recall number; run it on the GPU (README)
+```
+
+The first offline start failed with `Couldn't reach 'Tevatron/browsecomp-plus-corpus' on the Hub (OfflineModeIsEnabled)`, which led to the parquet loader.
+Next safe action: on a Vast GPU, run `setup.sh`, `run_server.sh`, and the recall gate (`--min-evidence 0.80 --min-gold 0.94`); start Kev on the same GPU; expose both through the portal; then the runner smoke test with `BCP_RETRIEVAL_API=dense`, `BCP_RETRIEVAL_MODEL=browsecomp-overfit`, `BCP_KEV_URL`, and `SEARCH_K=5`.

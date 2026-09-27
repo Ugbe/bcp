@@ -139,3 +139,21 @@ The smoke gate fails when `kev_scored` is below `candidates`, because the servic
 silently falls back to AgentIR order when Kev calls fail.
 Copy `logs/agentir_kev_searches.jsonl` off the retrieval box after the run; it
 holds all 50 candidates per search for the recall@50 versus recall@10 analysis.
+
+### Kev reranking for any retriever
+
+Policy is "retriever + Kev reranker" for every retriever.
+The AgentIR service does this server-side; for any other retrieval API the runner does it, by calling a Kev server for each retrieved document and reordering the hits by Kev's probability before the model sees them.
+Kev never adds or drops a document, so the model gets exactly `SEARCH_K` documents.
+
+```dotenv
+BCP_KEV_URL=http://<KEV_HOST>:<PORT>
+BCP_KEV_TOKEN=<KEV_BEARER_TOKEN_OR_EMPTY>
+SEARCH_K=5
+```
+
+Kev-4B needs its own GPU with about 22 GB free; it does not fit beside vLLM on a 32 GB card.
+Start it as in the Kev section of the AgentIR setup (`python -m kev.serve --run jaredpalmer/kev-4b --port 8009`) and put an authenticated proxy in front of it.
+The smoke gate fails unless Kev scores every document of a sample search.
+`run_benchmark.sh` writes one JSON line per search to `runs/<RUN_NAME>.kev.jsonl` with the retriever's order, Kev's probabilities, and the returned order.
+Deep-pool search is refused with Kev, because its 100-document preview pool is not reranked; multi-query search reranks its fused result once.

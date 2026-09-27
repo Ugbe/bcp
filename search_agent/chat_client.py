@@ -790,7 +790,8 @@ class ChatSearchToolHandler(SearchToolHandler):
         metadata.setdefault("novel_count", len(documents))
         metadata.setdefault("repeated_count", 0)
         retrieval_state = {
-            **metadata,
+            # Kev counters and timing are bookkeeping, not evidence for the model.
+            **{key: value for key, value in metadata.items() if not key.startswith("kev_")},
             "low_novelty_streak": low_novelty_streak,
             "remaining_tool_calls": remaining_tool_calls,
         }
@@ -2317,6 +2318,10 @@ def main():
     searcher_class.parse_args(parser)
 
     args = parser.parse_args()
+
+    if getattr(args, "kev_url", None) and args.deep_pool_search:
+        # deep_search returns a 100-document preview pool that Kev does not rank.
+        parser.error("--deep-pool-search cannot be combined with Kev reranking")
 
     if args.model_api_key is None:
         args.model_api_key = os.environ.get("MODEL_API_KEY", "EMPTY")

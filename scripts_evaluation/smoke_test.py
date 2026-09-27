@@ -158,6 +158,45 @@ except Exception as e:
     failures.append(f"retrieval: {e}")
     print(f"   FAIL: {e}")
 
+# 1b. Kev reranker, when the runner will rerank every search with it
+kev_url = os.environ.get("BCP_KEV_URL", "").strip()
+if kev_url:
+    print("=" * 60)
+    print("1b. Kev reranker:", kev_url)
+    try:
+        sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+        from searcher.searchers.kev_reranker import KevReranker
+
+        if retrieval_api == "agentir":
+            raise RuntimeError("the agentir service already reranks with Kev; unset BCP_KEV_URL")
+        search_k = int(os.environ.get("SEARCH_K", "5"))
+        sample = [
+            {
+                "docid": str(h["docid"]),
+                "text": h.get("text") or h.get("snippet") or (h.get("document") or {}).get("text", ""),
+            }
+            for h in hits[:search_k]
+        ]
+        reranker = KevReranker(
+            kev_url,
+            token=os.environ.get("BCP_KEV_TOKEN") or None,
+            timeout=float(os.environ.get("BCP_KEV_TIMEOUT", "120")),
+            doc_chars=int(os.environ.get("BCP_KEV_DOC_CHARS", "4096")),
+        )
+        reranked, meta = reranker.rerank("who invented the telephone", sample)
+        print(
+            f"   Kev scored {meta['kev_scored']}/{meta['kev_requested']} in {meta['kev_ms']} ms; "
+            f"retriever order {[h['docid'] for h in sample]} -> "
+            f"Kev order {[h['docid'] for h in reranked]}"
+        )
+        # Kev falls back to retriever order per document on failure, which would
+        # otherwise look like a healthy run with Kev silently skipped.
+        if meta["kev_scored"] < meta["kev_requested"]:
+            raise RuntimeError("Kev did not score every document; check the Kev server log")
+    except Exception as e:
+        failures.append(f"kev: {e}")
+        print(f"   FAIL: {e}")
+
 # 2. Served model (chat completions + structured tool-call contract)
 print("=" * 60)
 print("2. Model:", os.environ["MODEL_BASE_URL"])
