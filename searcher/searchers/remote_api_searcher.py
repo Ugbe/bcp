@@ -113,9 +113,19 @@ class RemoteApiSearcher(BaseSearcher):
         parser.add_argument(
             "--retrieval-timeout",
             type=float,
-            default=60.0,
-            help="HTTP timeout in seconds per request (default: 60, per "
-            "bcp-replication/retrieval_api.md operational notes).",
+            default=float(os.environ.get("BCP_RETRIEVAL_TIMEOUT", "60")),
+            help="HTTP timeout in seconds per request (default: $BCP_RETRIEVAL_TIMEOUT "
+            "or 60, per bcp-replication/retrieval_api.md operational notes).",
+        )
+        parser.add_argument(
+            "--retrieval-candidates",
+            type=int,
+            default=int(os.environ.get("BCP_RETRIEVAL_CANDIDATES") or 0),
+            help=(
+                "agentir API only: candidates the service reranks with Kev per search "
+                "(default $BCP_RETRIEVAL_CANDIDATES; 0 uses the server default). Pin it "
+                "so a server-side default change cannot alter a run midway."
+            ),
         )
         parser.add_argument(
             "--retrieval-retries",
@@ -141,6 +151,7 @@ class RemoteApiSearcher(BaseSearcher):
         self.reasoning_max_chars = max(
             0, int(getattr(args, "retrieval_reasoning_max_chars", 0) or 0)
         )
+        self.candidates = max(0, int(getattr(args, "retrieval_candidates", 0) or 0))
 
         self.session = requests.Session()
         if args.retrieval_token:
@@ -244,6 +255,8 @@ class RemoteApiSearcher(BaseSearcher):
             "include_text": True,
         }
         if self.api == "agentir":
+            if self.candidates:
+                payload["candidates"] = self.candidates
             reasoning = (reasoning or "").strip()
             if reasoning and self.accepts_reasoning:
                 # Keep the tail: the thoughts right before the call explain it.

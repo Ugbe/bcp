@@ -56,7 +56,7 @@ class _AgentIrService:
         return _HttpResponse({"detail": "Not Found"}, status_code=404)
 
 
-def _searcher(service, reasoning_max_chars=12000):
+def _searcher(service, reasoning_max_chars=12000, candidates=0):
     searcher = RemoteApiSearcher(
         SimpleNamespace(
             retrieval_url="http://retrieval.invalid",
@@ -67,6 +67,7 @@ def _searcher(service, reasoning_max_chars=12000):
             retrieval_api="agentir",
             retrieval_model="ignored-by-agentir",
             retrieval_reasoning_max_chars=reasoning_max_chars,
+            retrieval_candidates=candidates,
         )
     )
     searcher.session = service
@@ -145,6 +146,18 @@ class AgentIrSearcherTests(unittest.TestCase):
             request["json"],
             {"query": "Otto Knows", "k": 2, "include_text": True, "reasoning": "fghij"},
         )
+
+    def test_pinned_candidate_count_is_sent_on_every_search_path(self):
+        service = _AgentIrService()
+        searcher = _searcher(service, candidates=200)
+        searcher.search("q", k=1)
+        searcher.search_with_metadata("q", k=1, exclude_docids={"x"})
+        self.assertEqual([r["json"]["candidates"] for r in service.requests], [200, 200])
+
+    def test_unpinned_candidate_count_is_left_to_the_server(self):
+        service = _AgentIrService()
+        _searcher(service).search("q", k=1)
+        self.assertNotIn("candidates", service.requests[0]["json"])
 
     def test_missing_reasoning_is_omitted(self):
         service = _AgentIrService()

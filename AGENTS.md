@@ -1688,3 +1688,15 @@ At the user's request the adapter encoder served by `neutron-retrieval/neutron_s
 Runner setting: `BCP_RETRIEVAL_MODEL=neutron`.
 The running retrieval box needs `git pull` and a restart of the `neutron` tmux session before it accepts the new name; until then it rejects `neutron` with HTTP 400.
 Verification: `tests/test_neutron_server.py` covers both names selecting the adapter and the 400 message listing names and aliases; unittest discovery 159 passed.
+
+## 43. Pinning AgentIR candidates after a server-side change - 2026-09-27
+
+The teammate running the AgentIR+Kev service raised its default Kev candidate pool from 200 to 300; the AgentIR run (`atom-electron-1.3-9b-agentir-kev4b`) had been paused at 522 records, and the smoke test then failed with `Read timed out. (read timeout=60)` on `/search`.
+A mid-run default change also mixes two retriever configurations inside one run, so the runner now pins the pool instead of trusting the server default: `--retrieval-candidates` / `BCP_RETRIEVAL_CANDIDATES` (agentir only; 0 keeps the server default) is sent as `candidates` on every search path.
+`--retrieval-timeout` now also reads `BCP_RETRIEVAL_TIMEOUT` (default 60).
+The smoke test sends the same `candidates` and fails if the service reports a different count.
+Resume the AgentIR run with `BCP_RETRIEVAL_CANDIDATES=200`, the value the earlier smoke test recorded (`kev_scored=200/200`); confirm from the service's `agentir_kev_searches.jsonl` that the first 522 records really used 200.
+
+The Kev check in the smoke test (section 1b) also now probes `/v1/models` with a 15 s timeout and falls back to two sample passages when retrieval returned nothing, instead of crashing with `name 'hits' is not defined`.
+
+Verification: two new tests in `tests/test_agentir_retrieval.py` (pinned count on plain and novelty paths; unpinned leaves it to the server); unittest discovery 161 passed; smoke test against a local fake AgentIR service defaulting to 50 requested 200 and was served 200.

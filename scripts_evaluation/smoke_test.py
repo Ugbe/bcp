@@ -22,6 +22,8 @@ try:
     retrieval_url = os.environ["BCP_RETRIEVAL_URL"].rstrip("/")
     retrieval_api = os.environ.get("BCP_RETRIEVAL_API", "legacy").strip().lower()
     retrieval_model = os.environ.get("BCP_RETRIEVAL_MODEL", "").strip()
+    retrieval_timeout = float(os.environ.get("BCP_RETRIEVAL_TIMEOUT", "60"))
+    retrieval_candidates = int(os.environ.get("BCP_RETRIEVAL_CANDIDATES") or 0)
     if retrieval_api not in {"legacy", "dense", "agentir"}:
         raise RuntimeError(
             "BCP_RETRIEVAL_API must be 'legacy', 'dense', or 'agentir', "
@@ -33,6 +35,8 @@ try:
     search_body = {"query": "who invented the telephone", "k": 10}
     if retrieval_api == "agentir":
         search_body["include_text"] = True
+        if retrieval_candidates:
+            search_body["candidates"] = retrieval_candidates
         search_body["reasoning"] = (
             "The question asks for the inventor of the telephone; "
             "look for a biography or a history of the invention."
@@ -46,7 +50,7 @@ try:
     else:
         search_path = "/retrieve"
         search_body = {"query": "who invented the telephone"}
-    r = s.post(f"{retrieval_url}{search_path}", json=search_body, timeout=60)
+    r = s.post(f"{retrieval_url}{search_path}", json=search_body, timeout=retrieval_timeout)
     r.raise_for_status()
     payload = r.json()
     hits = (
@@ -70,6 +74,10 @@ try:
             raise RuntimeError(
                 "agentir /search response lacks kev_scored/candidates; "
                 "is BCP_RETRIEVAL_URL the AgentIR+Kev service?"
+            )
+        if retrieval_candidates and candidates != retrieval_candidates:
+            raise RuntimeError(
+                f"requested {retrieval_candidates} candidates but the service used {candidates}"
             )
         if kev_scored < candidates:
             raise RuntimeError(
@@ -96,7 +104,7 @@ try:
                 "k": 10,
                 "seen_anchor_count": 0,
             },
-            timeout=60,
+            timeout=retrieval_timeout,
         )
         exclusion_probe.raise_for_status()
         exclusion_payload = exclusion_probe.json()
@@ -142,13 +150,13 @@ try:
             )
     docid = hits[0]["docid"]
     if search_style == "dense":
-        r = s.get(f"{retrieval_url}/document/{quote(str(docid), safe='')}", timeout=60)
+        r = s.get(f"{retrieval_url}/document/{quote(str(docid), safe='')}", timeout=retrieval_timeout)
     else:
-        r = s.get(f"{retrieval_url}/get_document", params={"docid": docid}, timeout=60)
+        r = s.get(f"{retrieval_url}/get_document", params={"docid": docid}, timeout=retrieval_timeout)
     r.raise_for_status()
     print(f"   get_document OK - docid {docid}, {len(r.json()['text'])} chars")
     if retrieval_api == "dense":
-        r = s.post(f"{retrieval_url}/documents", json={"docids": [str(docid)]}, timeout=60)
+        r = s.post(f"{retrieval_url}/documents", json={"docids": [str(docid)]}, timeout=retrieval_timeout)
         r.raise_for_status()
         documents = r.json().get("documents", [])
         if not documents or str(documents[0].get("docid")) != str(docid):
